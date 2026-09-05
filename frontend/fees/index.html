@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fees — School Management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Courier+Prime:wght@400;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/theme.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="board">
+
+  <header class="board-header">
+    <div>
+      <a class="back-link" href="../dashboard/index.html">← Dashboard</a>
+      <h1 class="chalk-title">Fees</h1>
+      <p class="chalk-sub">Track payments and outstanding balances</p>
+    </div>
+    <div class="header-right" style="display:flex; align-items:center; gap:16px;">
+      <div id="userBadgeSlot"></div>
+      <button class="chalk-btn chalk-btn--outline" id="exportBtn">Export CSV</button>
+      <button class="chalk-btn" id="newPaymentBtn" data-requires-role="admin">＋ Record Payment</button>
+    </div>
+  </header>
+
+  <section class="stat-strip">
+    <div class="stat-card">
+      <span class="stat-value" id="statCollected">KSh 0</span>
+      <span class="stat-label">Collected</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value" id="statOutstanding">KSh 0</span>
+      <span class="stat-label">Outstanding</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value" id="statOverdue">0</span>
+      <span class="stat-label">Overdue Accounts</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Fee Ledger</h2>
+      <div class="filter-row">
+        <input type="search" id="searchInput" placeholder="Search student...">
+        <select id="statusFilter">
+          <option value="all">All statuses</option>
+          <option value="paid">Paid</option>
+          <option value="pending">Pending</option>
+          <option value="overdue">Overdue</option>
+        </select>
+      </div>
+    </div>
+
+    <table class="ledger-table">
+      <thead>
+        <tr>
+          <th>Student</th>
+          <th>Class</th>
+          <th>Amount</th>
+          <th>Due Date</th>
+          <th>Status</th>
+          <th data-requires-role="admin"></th>
+        </tr>
+      </thead>
+      <tbody id="feesTableBody"></tbody>
+    </table>
+
+    <div class="pagination" id="pagination"></div>
+  </section>
+
+</div>
+
+<!-- Add / Edit modal -->
+<div class="modal-overlay" id="feeModalOverlay">
+  <div class="modal-box">
+    <h3 id="modalTitle">Record Payment</h3>
+    <form id="feeForm">
+      <input type="hidden" id="feeId">
+      <div class="form-field">
+        <label for="feeStudentSelect">Student</label>
+        <select id="feeStudentSelect" required></select>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label for="feeAmount">Amount (KSh)</label>
+          <input type="number" id="feeAmount" min="0" required>
+        </div>
+        <div class="form-field">
+          <label for="feeDue">Due Date</label>
+          <input type="date" id="feeDue" required>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="feeStatus">Status</label>
+        <select id="feeStatus">
+          <option value="pending">Pending</option>
+          <option value="paid">Paid</option>
+          <option value="overdue">Overdue</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="chalk-btn chalk-btn--outline" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="chalk-btn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="../shared/auth-client.js"></script>
+<script src="../shared/auth-guard.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

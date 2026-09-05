@@ -1,0 +1,96 @@
+.panel-head .form-field select {
+  background: var(--board-bg);
+  border: 1px solid var(--rail-line-strong);
+  border-radius: 4px;
+  padding: 7px 10px;
+  color: var(--chalk-white);
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+}
+
+.timetable-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 900px) {
+  .timetable-grid { grid-template-columns: 1fr; }
+}
+
+.day-column {
+  background: var(--board-bg);
+  border: 1px dashed var(--rail-line);
+  border-radius: var(--radius);
+  padding: 12px;
+  min-height: 120px;
+}
+
+.day-column h4 {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  margin: 0 0 10px;
+  color: var(--chalk-white);
+  text-align: center;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--rail-line);
+}
+
+.period-card {
+  background: var(--board-bg-dark);
+  border-left: 3px solid var(--chalk-blue);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  position: relative;
+}
+
+.period-time {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--chalk-white-dim);
+  display: block;
+  margin-bottom: 2px;
+}
+
+.period-subject {
+  font-size: 0.82rem;
+  color: var(--chalk-white);
+  font-weight: 600;
+}
+
+.period-teacher {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--chalk-white-dim);
+  display: block;
+  margin-top: 2px;
+}
+
+.period-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 4px;
+}
+
+.period-actions button {
+  background: none;
+  border: none;
+  color: var(--chalk-white-dim);
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 2px;
+}
+
+.period-actions button:hover { color: var(--chalk-pink); }
+
+.day-empty {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--chalk-white-dim);
+  opacity: 0.6;
+  text-align: center;
+  padding: 20px 0;
+}

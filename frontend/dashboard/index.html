@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — School Management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Courier+Prime:wght@400;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/theme.css">
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="board">
+
+  <!-- ===== Header ===== -->
+  <header class="board-header">
+    <div class="header-left">
+      <h1 class="chalk-title">Dashboard</h1>
+      <p class="chalk-sub" id="dashSubtitle">Everything at a glance</p>
+    </div>
+    <div class="header-right" style="display:flex; align-items:center; gap:16px;">
+      <div class="date-chip" id="todayDate"></div>
+      <div id="userBadgeSlot"></div>
+    </div>
+  </header>
+
+  <!-- ===== Quick Actions ===== -->
+  <section class="quick-actions" aria-label="Quick actions">
+    <button class="chalk-btn" data-action="mark-attendance" data-requires-role="admin,teacher">
+      <span class="btn-icon">✓</span> Mark Attendance
+    </button>
+    <button class="chalk-btn" data-action="record-payment" data-requires-role="admin">
+      <span class="btn-icon">₦</span> Record Payment
+    </button>
+    <button class="chalk-btn" data-action="new-announcement" data-requires-role="admin,teacher">
+      <span class="btn-icon">📣</span> New Announcement
+    </button>
+    <button class="chalk-btn chalk-btn--outline" data-action="export-report">
+      <span class="btn-icon">⇩</span> Export Report
+    </button>
+  </section>
+
+  <!-- ===== Main Grid ===== -->
+  <div class="dash-grid">
+
+    <!-- Left column -->
+    <div class="col col-left">
+
+      <!-- Announcements -->
+      <section class="panel" aria-labelledby="announcementsTitle">
+        <div class="panel-head">
+          <h2 id="announcementsTitle">Recent Announcements</h2>
+          <button class="panel-link" data-action="view-all-announcements">View all</button>
+        </div>
+        <ul class="announcement-list" id="announcementList">
+          <!-- injected by script.js -->
+        </ul>
+      </section>
+
+      <!-- Calendar -->
+      <section class="panel" aria-labelledby="calendarTitle">
+        <div class="panel-head">
+          <h2 id="calendarTitle">School Calendar</h2>
+          <div class="cal-nav">
+            <button class="cal-nav-btn" id="calPrev" aria-label="Previous month">‹</button>
+            <span id="calMonthLabel" class="cal-month-label"></span>
+            <button class="cal-nav-btn" id="calNext" aria-label="Next month">›</button>
+          </div>
+        </div>
+        <div class="calendar" id="calendarGrid"></div>
+        <ul class="cal-events" id="calEventList"></ul>
+      </section>
+
+    </div>
+
+    <!-- Right column -->
+    <div class="col col-right">
+
+      <!-- Pending Fees -->
+      <section class="panel" aria-labelledby="feesTitle">
+        <div class="panel-head">
+          <h2 id="feesTitle">Pending Fees</h2>
+          <span class="badge badge--pink" id="feesTotalBadge">KSh 0</span>
+        </div>
+        <table class="ledger-table" id="feesTable">
+          <thead>
+            <tr>
+              <th>Student</th>
+              <th>Class</th>
+              <th>Amount Due</th>
+              <th>Due Date</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="feesTableBody"></tbody>
+        </table>
+      </section>
+
+      <!-- Charts & Statistics -->
+      <section class="panel" aria-labelledby="statsTitle">
+        <div class="panel-head">
+          <h2 id="statsTitle">Charts &amp; Statistics</h2>
+        </div>
+
+        <div class="stat-cards">
+          <div class="stat-card">
+            <span class="stat-value" id="statTotalStudents">0</span>
+            <span class="stat-label">Students</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value" id="statTotalTeachers">0</span>
+            <span class="stat-label">Teachers</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value" id="statAttendanceRate">0%</span>
+            <span class="stat-label">Attendance Today</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value" id="statFeesCollected">0%</span>
+            <span class="stat-label">Fees Collected</span>
+          </div>
+        </div>
+
+        <div class="chart-row">
+          <div class="chart-box">
+            <h3 class="chart-title">Enrollment by Class</h3>
+            <canvas id="enrollmentChart"></canvas>
+          </div>
+          <div class="chart-box">
+            <h3 class="chart-title">Attendance — Last 7 Days</h3>
+            <canvas id="attendanceChart"></canvas>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<script src="../shared/auth-client.js"></script>
+<script src="../shared/auth-guard.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

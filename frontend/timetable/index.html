@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Timetable — School Management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Courier+Prime:wght@400;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/theme.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="board">
+
+  <header class="board-header">
+    <div>
+      <a class="back-link" href="../dashboard/index.html">← Dashboard</a>
+      <h1 class="chalk-title">Timetable</h1>
+      <p class="chalk-sub">Weekly class schedule by period</p>
+    </div>
+    <div class="header-right" style="display:flex; align-items:center; gap:16px;">
+      <div id="userBadgeSlot"></div>
+      <button class="chalk-btn" id="newSlotBtn" data-requires-role="admin">＋ Add Period</button>
+    </div>
+  </header>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Weekly Schedule</h2>
+      <div class="form-field" style="margin-bottom:0;">
+        <label for="classSelect">Class</label>
+        <select id="classSelect"></select>
+      </div>
+    </div>
+
+    <div class="timetable-grid" id="timetableGrid"></div>
+  </section>
+
+</div>
+
+<!-- Add / Edit modal -->
+<div class="modal-overlay" id="slotModalOverlay">
+  <div class="modal-box">
+    <h3 id="modalTitle">Add Period</h3>
+    <form id="slotForm">
+      <input type="hidden" id="slotId">
+      <div class="form-field">
+        <label for="slotClass">Class</label>
+        <input type="text" id="slotClass" required placeholder="e.g. Grade 7B">
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label for="slotDay">Day</label>
+          <select id="slotDay">
+            <option>Monday</option><option>Tuesday</option><option>Wednesday</option>
+            <option>Thursday</option><option>Friday</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label for="slotSubject">Subject</label>
+          <input type="text" id="slotSubject" required>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label for="slotStart">Start Time</label>
+          <input type="time" id="slotStart" required>
+        </div>
+        <div class="form-field">
+          <label for="slotEnd">End Time</label>
+          <input type="time" id="slotEnd" required>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="slotTeacherSelect">Teacher</label>
+        <select id="slotTeacherSelect"></select>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="chalk-btn chalk-btn--outline" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="chalk-btn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="../shared/auth-client.js"></script>
+<script src="../shared/auth-guard.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

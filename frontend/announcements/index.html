@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Announcements — School Management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Courier+Prime:wght@400;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/theme.css">
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="board">
+
+  <header class="board-header">
+    <div>
+      <a class="back-link" href="../dashboard/index.html">← Dashboard</a>
+      <h1 class="chalk-title">Announcements</h1>
+      <p class="chalk-sub">Post and manage school-wide notices</p>
+    </div>
+    <div class="header-right" style="display:flex; align-items:center; gap:16px;">
+      <div id="userBadgeSlot"></div>
+      <button class="chalk-btn" id="newAnnouncementBtn" data-requires-role="admin,teacher">＋ New Announcement</button>
+    </div>
+  </header>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>All Announcements</h2>
+      <div class="filter-row">
+        <input type="search" id="searchInput" placeholder="Search announcements...">
+        <select id="tagFilter">
+          <option value="all">All tags</option>
+          <option value="urgent">Urgent</option>
+          <option value="info">Info</option>
+          <option value="general">General</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="announcement-feed" id="announcementFeed"></div>
+    <div class="pagination" id="pagination"></div>
+  </section>
+
+</div>
+
+<!-- Add / Edit modal -->
+<div class="modal-overlay" id="announcementModalOverlay">
+  <div class="modal-box">
+    <h3 id="modalTitle">New Announcement</h3>
+    <form id="announcementForm">
+      <input type="hidden" id="announcementId">
+      <div class="form-field">
+        <label for="annTitle">Title</label>
+        <input type="text" id="annTitle" required>
+      </div>
+      <div class="form-field">
+        <label for="annBody">Message</label>
+        <textarea id="annBody" rows="4" required></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label for="annTag">Tag</label>
+          <select id="annTag">
+            <option value="urgent">Urgent</option>
+            <option value="info">Info</option>
+            <option value="general" selected>General</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label for="annAudience">Audience</label>
+          <select id="annAudience">
+            <option value="all">Everyone</option>
+            <option value="students">Students</option>
+            <option value="teachers">Teachers</option>
+            <option value="parents">Parents</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="chalk-btn chalk-btn--outline" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="chalk-btn">Publish</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="../shared/auth-client.js"></script>
+<script src="../shared/auth-guard.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

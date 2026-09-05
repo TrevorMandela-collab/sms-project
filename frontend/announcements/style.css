@@ -1,0 +1,98 @@
+.filter-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.filter-row input, .filter-row select {
+  background: var(--board-bg);
+  border: 1px solid var(--rail-line-strong);
+  border-radius: 4px;
+  padding: 7px 10px;
+  color: var(--chalk-white);
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+}
+
+.announcement-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.announcement-card {
+  border: 1px dashed var(--rail-line);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  background: var(--board-bg);
+  position: relative;
+}
+
+.announcement-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.announcement-card h4 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  color: var(--chalk-white);
+}
+
+.announcement-card p {
+  margin: 0 0 10px;
+  font-size: 0.86rem;
+  color: var(--chalk-white-dim);
+  line-height: 1.5;
+}
+
+.announcement-tags {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.tag-chip {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.tag-chip--urgent { background: var(--chalk-pink); color: var(--board-bg-dark); }
+.tag-chip--info { background: var(--chalk-blue); color: var(--board-bg-dark); }
+.tag-chip--general { background: var(--chalk-green); color: var(--board-bg-dark); }
+
+.announcement-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--chalk-white-dim);
+  opacity: 0.85;
+}
+
+.row-actions { display: flex; gap: 8px; }
+
+.icon-btn {
+  background: none;
+  border: 1px solid var(--rail-line-strong);
+  color: var(--chalk-white-dim);
+  font-size: 0.7rem;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--font-body);
+}
+
+.icon-btn:hover { color: var(--chalk-yellow); border-color: var(--chalk-yellow); }
+.icon-btn.danger:hover { color: var(--chalk-pink); border-color: var(--chalk-pink); }

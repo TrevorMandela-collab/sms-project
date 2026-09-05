@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Library — School Management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Courier+Prime:wght@400;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/theme.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="board">
+
+  <header class="board-header">
+    <div>
+      <a class="back-link" href="../dashboard/index.html">← Dashboard</a>
+      <h1 class="chalk-title">Library</h1>
+      <p class="chalk-sub">Catalog and loans</p>
+    </div>
+    <div class="header-right" style="display:flex; align-items:center; gap:16px;">
+      <div id="userBadgeSlot"></div>
+      <button class="chalk-btn" id="newBookBtn" data-requires-role="admin,teacher">＋ Add Book</button>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <button class="tab-btn is-active" data-tab="catalog">Catalog</button>
+    <button class="tab-btn" data-tab="loans">Loans</button>
+  </div>
+
+  <!-- Catalog tab -->
+  <section class="panel tab-panel" id="catalogPanel">
+    <div class="panel-head">
+      <h2>Book Catalog</h2>
+      <input type="search" id="catalogSearch" placeholder="Search title or author...">
+    </div>
+    <table class="ledger-table">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Author</th>
+          <th>Category</th>
+          <th>Available</th>
+          <th data-requires-role="admin,teacher"></th>
+        </tr>
+      </thead>
+      <tbody id="catalogTableBody"></tbody>
+    </table>
+  </section>
+
+  <!-- Loans tab -->
+  <section class="panel tab-panel" id="loansPanel" style="display:none;">
+    <div class="panel-head">
+      <h2 id="loansTitle">Active Loans</h2>
+      <button class="chalk-btn chalk-btn--outline" id="newLoanBtn" data-requires-role="admin,teacher">＋ Record Loan</button>
+    </div>
+    <table class="ledger-table">
+      <thead>
+        <tr>
+          <th>Book</th>
+          <th>Student</th>
+          <th>Borrowed</th>
+          <th>Due</th>
+          <th>Status</th>
+          <th data-requires-role="admin,teacher"></th>
+        </tr>
+      </thead>
+      <tbody id="loansTableBody"></tbody>
+    </table>
+  </section>
+
+</div>
+
+<!-- Add / Edit book modal -->
+<div class="modal-overlay" id="bookModalOverlay">
+  <div class="modal-box">
+    <h3 id="bookModalTitle">Add Book</h3>
+    <form id="bookForm">
+      <input type="hidden" id="bookId">
+      <div class="form-field">
+        <label for="bookTitle">Title</label>
+        <input type="text" id="bookTitle" required>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label for="bookAuthor">Author</label>
+          <input type="text" id="bookAuthor" required>
+        </div>
+        <div class="form-field">
+          <label for="bookCategory">Category</label>
+          <input type="text" id="bookCategory" placeholder="e.g. Fiction">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label for="bookIsbn">ISBN</label>
+          <input type="text" id="bookIsbn">
+        </div>
+        <div class="form-field">
+          <label for="bookCopies">Total Copies</label>
+          <input type="number" id="bookCopies" min="1" value="1" required>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="chalk-btn chalk-btn--outline" id="cancelBookModalBtn">Cancel</button>
+        <button type="submit" class="chalk-btn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- New loan modal -->
+<div class="modal-overlay" id="loanModalOverlay">
+  <div class="modal-box">
+    <h3>Record Loan</h3>
+    <form id="loanForm">
+      <div class="form-field">
+        <label for="loanBookSelect">Book</label>
+        <select id="loanBookSelect" required></select>
+      </div>
+      <div class="form-field">
+        <label for="loanStudentSelect">Student</label>
+        <select id="loanStudentSelect" required></select>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label for="loanBorrowedDate">Borrowed Date</label>
+          <input type="date" id="loanBorrowedDate" required>
+        </div>
+        <div class="form-field">
+          <label for="loanDueDate">Due Date</label>
+          <input type="date" id="loanDueDate" required>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="chalk-btn chalk-btn--outline" id="cancelLoanModalBtn">Cancel</button>
+        <button type="submit" class="chalk-btn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="../shared/auth-client.js"></script>
+<script src="../shared/auth-guard.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

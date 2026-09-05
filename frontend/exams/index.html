@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Exams &amp; Grades — School Management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Courier+Prime:wght@400;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/theme.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="board">
+
+  <header class="board-header">
+    <div>
+      <a class="back-link" href="../dashboard/index.html">← Dashboard</a>
+      <h1 class="chalk-title">Exams &amp; Grades</h1>
+      <p class="chalk-sub">Record scores and track performance by term</p>
+    </div>
+    <div class="header-right" style="display:flex; align-items:center; gap:16px;">
+      <div id="userBadgeSlot"></div>
+      <button class="chalk-btn" id="newGradeBtn" data-requires-role="admin,teacher">＋ Add Score</button>
+    </div>
+  </header>
+
+  <section class="stat-strip">
+    <div class="stat-card">
+      <span class="stat-value" id="statAverage">—</span>
+      <span class="stat-label">Average Score</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value" id="statRecorded">0</span>
+      <span class="stat-label">Scores Recorded</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2 id="ledgerTitle">Exam Results</h2>
+      <div class="filter-row">
+        <input type="search" id="searchInput" placeholder="Search student or subject...">
+        <select id="termFilter">
+          <option value="all">All terms</option>
+        </select>
+      </div>
+    </div>
+
+    <table class="ledger-table">
+      <thead>
+        <tr>
+          <th>Student</th>
+          <th>Subject</th>
+          <th>Exam</th>
+          <th>Term</th>
+          <th>Score</th>
+          <th>Grade</th>
+          <th data-requires-role="admin,teacher"></th>
+        </tr>
+      </thead>
+      <tbody id="examsTableBody"></tbody>
+    </table>
+
+    <div class="pagination" id="pagination"></div>
+  </section>
+
+</div>
+
+<!-- Add / Edit modal -->
+<div class="modal-overlay" id="examModalOverlay">
+  <div class="modal-box">
+    <h3 id="modalTitle">Add Score</h3>
+    <form id="examForm">
+      <input type="hidden" id="examId">
+      <div class="form-field">
+        <label for="examStudentSelect">Student</label>
+        <select id="examStudentSelect" required></select>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label for="examSubject">Subject</label>
+          <input type="text" id="examSubject" required placeholder="e.g. Mathematics">
+        </div>
+        <div class="form-field">
+          <label for="examName">Exam Name</label>
+          <input type="text" id="examName" required placeholder="e.g. Mid-term">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label for="examScore">Score</label>
+          <input type="number" id="examScore" min="0" required>
+        </div>
+        <div class="form-field">
+          <label for="examMaxScore">Max Score</label>
+          <input type="number" id="examMaxScore" min="1" value="100" required>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="examTerm">Term</label>
+        <input type="text" id="examTerm" required placeholder="e.g. Term 2 2026">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="chalk-btn chalk-btn--outline" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="chalk-btn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="../shared/auth-client.js"></script>
+<script src="../shared/auth-guard.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

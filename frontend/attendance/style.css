@@ -1,0 +1,47 @@
+.controls {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.attendance-summary {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.attendance-summary .chip {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 1px dashed var(--rail-line-strong);
+  color: var(--chalk-white-dim);
+}
+
+.attendance-summary .chip strong { color: var(--chalk-white); }
+
+.status-toggle { display: inline-flex; gap: 6px; }
+
+.status-btn {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  border: 1px solid var(--rail-line-strong);
+  background: transparent;
+  color: var(--chalk-white-dim);
+  padding: 5px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.status-btn[data-status="present"].is-active { background: var(--chalk-green); color: var(--board-bg-dark); border-color: var(--chalk-green); }
+.status-btn[data-status="absent"].is-active { background: var(--chalk-pink); color: var(--board-bg-dark); border-color: var(--chalk-pink); }
+.status-btn[data-status="late"].is-active { background: var(--chalk-yellow); color: var(--board-bg-dark); border-color: var(--chalk-yellow); }
+
+.rate-good { color: var(--chalk-green); font-weight: 700; }
+.rate-bad { color: var(--chalk-pink); font-weight: 700; }
