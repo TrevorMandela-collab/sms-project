@@ -7,7 +7,7 @@
    and surfaces API errors consistently.
 ========================================================= */
 
-const SMS_API_BASE = 'http://localhost:4000/api';
+const SMS_API_BASE = 'https://sms-backend-gfrs.onrender.com/api';
 const TOKEN_KEY = 'sms_token';
 const USER_KEY = 'sms_user';
 

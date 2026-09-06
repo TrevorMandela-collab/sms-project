@@ -11,21 +11,31 @@
   --rail-line: rgba(240, 237, 225, 0.14);
   --rail-line-strong: rgba(240, 237, 225, 0.28);
 
-  --font-display: 'Kalam', cursive;
-  --font-mono: 'Courier Prime', monospace;
-  --font-body: 'Inter', sans-serif;
+  --font-display: "Kalam", cursive;
+  --font-mono: "Courier Prime", monospace;
+  --font-body: "Inter", sans-serif;
 
   --radius: 6px;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
 body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(ellipse at 20% 10%, rgba(255,255,255,0.03), transparent 45%),
-    radial-gradient(ellipse at 80% 90%, rgba(255,255,255,0.025), transparent 50%),
+    radial-gradient(
+      ellipse at 20% 10%,
+      rgba(255, 255, 255, 0.03),
+      transparent 45%
+    ),
+    radial-gradient(
+      ellipse at 80% 90%,
+      rgba(255, 255, 255, 0.025),
+      transparent 50%
+    ),
     var(--board-bg);
   font-family: var(--font-body);
   color: var(--chalk-white);
@@ -42,8 +52,12 @@ body::before {
   background-image:
     radial-gradient(circle, #fff 1px, transparent 1px),
     radial-gradient(circle, #fff 1px, transparent 1px);
-  background-size: 3px 3px, 5px 5px;
-  background-position: 0 0, 2px 3px;
+  background-size:
+    3px 3px,
+    5px 5px;
+  background-position:
+    0 0,
+    2px 3px;
 }
 
 .board {
@@ -68,7 +82,7 @@ body::before {
   font-size: 2.4rem;
   margin: 0;
   color: var(--chalk-white);
-  text-shadow: 0 0 14px rgba(240,237,225,0.18);
+  text-shadow: 0 0 14px rgba(240, 237, 225, 0.18);
   letter-spacing: 0.5px;
 }
 
@@ -110,18 +124,20 @@ body::before {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
-  box-shadow: 0 2px 0 rgba(0,0,0,0.25);
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
 }
 
 .chalk-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 0 rgba(0,0,0,0.25);
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.25);
 }
 
 .chalk-btn:active {
   transform: translateY(0);
-  box-shadow: 0 1px 0 rgba(0,0,0,0.25);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
 }
 
 .chalk-btn--outline {
@@ -131,7 +147,9 @@ body::before {
   box-shadow: none;
 }
 
-.btn-icon { font-size: 0.95rem; }
+.btn-icon {
+  font-size: 0.95rem;
+}
 
 /* ===== Grid layout ===== */
 .dash-grid {
@@ -148,7 +166,9 @@ body::before {
 }
 
 @media (max-width: 900px) {
-  .dash-grid { grid-template-columns: 1fr; }
+  .dash-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ===== Panel (ledger card) ===== */
@@ -204,9 +224,18 @@ body::before {
   border-radius: 20px;
 }
 
-.badge--pink { background: var(--chalk-pink); color: var(--board-bg-dark); }
-.badge--yellow { background: var(--chalk-yellow); color: var(--board-bg-dark); }
-.badge--blue { background: var(--chalk-blue); color: var(--board-bg-dark); }
+.badge--pink {
+  background: var(--chalk-pink);
+  color: var(--board-bg-dark);
+}
+.badge--yellow {
+  background: var(--chalk-yellow);
+  color: var(--board-bg-dark);
+}
+.badge--blue {
+  background: var(--chalk-blue);
+  color: var(--board-bg-dark);
+}
 
 /* ===== Announcements ===== */
 .announcement-list {
@@ -225,7 +254,10 @@ body::before {
   border-bottom: 1px dashed var(--rail-line);
 }
 
-.announcement-item:last-child { border-bottom: none; padding-bottom: 0; }
+.announcement-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
 
 .announcement-dot {
   width: 8px;
@@ -322,9 +354,13 @@ body::before {
   background: var(--chalk-pink);
 }
 
-.cal-day.is-today.has-event::after { background: var(--board-bg-dark); }
+.cal-day.is-today.has-event::after {
+  background: var(--board-bg-dark);
+}
 
-.cal-day.is-empty { visibility: hidden; }
+.cal-day.is-empty {
+  visibility: hidden;
+}
 
 .cal-events {
   list-style: none;
@@ -349,7 +385,9 @@ body::before {
   min-width: 42px;
 }
 
-.cal-event-name { color: var(--chalk-white-dim); }
+.cal-event-name {
+  color: var(--chalk-white-dim);
+}
 
 /* ===== Fees ledger table ===== */
 .ledger-table {
@@ -376,9 +414,14 @@ body::before {
   color: var(--chalk-white);
 }
 
-.ledger-table tr:last-child td { border-bottom: none; }
+.ledger-table tr:last-child td {
+  border-bottom: none;
+}
 
-.amount-due { color: var(--chalk-pink); font-weight: 700; }
+.amount-due {
+  color: var(--chalk-pink);
+  font-weight: 700;
+}
 
 .remind-btn {
   background: none;
@@ -391,7 +434,10 @@ body::before {
   cursor: pointer;
 }
 
-.remind-btn:hover { color: var(--chalk-yellow); border-color: var(--chalk-yellow); }
+.remind-btn:hover {
+  color: var(--chalk-yellow);
+  border-color: var(--chalk-yellow);
+}
 
 /* ===== Stats ===== */
 .stat-cards {
@@ -402,7 +448,9 @@ body::before {
 }
 
 @media (max-width: 640px) {
-  .stat-cards { grid-template-columns: repeat(2, 1fr); }
+  .stat-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 .stat-card {
@@ -438,7 +486,9 @@ body::before {
 }
 
 @media (max-width: 640px) {
-  .chart-row { grid-template-columns: 1fr; }
+  .chart-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .chart-box {
@@ -457,7 +507,9 @@ body::before {
   margin: 0 0 10px;
 }
 
-.chart-box canvas { max-height: 180px; }
+.chart-box canvas {
+  max-height: 180px;
+}
 
 /* ===== Toast (quick-action placeholder feedback) ===== */
 .toast {
@@ -472,9 +524,11 @@ body::before {
   font-weight: 600;
   padding: 12px 20px;
   border-radius: 20px;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
   opacity: 0;
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
   z-index: 100;
   max-width: 90vw;
   text-align: center;
@@ -483,4 +537,34 @@ body::before {
 .toast.is-visible {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+}
+
+/* Fade in when the page loads */
+body {
+  opacity: 0;
+  animation: fadeIn 0.5s ease forwards;
+}
+
+/* Fade out before leaving the page */
+body.fade-out {
+  animation: fadeOut 0.5s ease forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Page fade out */
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }

@@ -6,6 +6,8 @@ const morgan = require('morgan');
 const authRoutes = require('./routes/auth');
 const studentsRoutes = require('./routes/students');
 const teachersRoutes = require('./routes/teachers');
+const subjectsRoutes = require('./routes/subjects');
+const classesRoutes = require('./routes/classes');
 const announcementsRoutes = require('./routes/announcements');
 const attendanceRoutes = require('./routes/attendance');
 const feesRoutes = require('./routes/fees');
@@ -27,6 +29,8 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date().t
 app.use('/api/auth', authRoutes);
 app.use('/api/students', studentsRoutes);
 app.use('/api/teachers', teachersRoutes);
+app.use('/api/subjects', subjectsRoutes);
+app.use('/api/classes', classesRoutes);
 app.use('/api/announcements', announcementsRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/fees', feesRoutes);

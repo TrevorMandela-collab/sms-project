@@ -10,11 +10,13 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div class="app-shell">
+  <div id="sidebarSlot"></div>
+  <main class="app-main">
 <div class="board">
 
   <header class="board-header">
     <div>
-      <a class="back-link" href="../dashboard/index.html">← Dashboard</a>
       <h1 class="chalk-title">Teachers</h1>
       <p class="chalk-sub">Staff directory and subject assignments</p>
     </div>
@@ -62,6 +64,8 @@
   </section>
 
 </div>
+  </main>
+</div>
 
 <!-- Add / Edit modal -->
 <div class="modal-overlay" id="teacherModalOverlay">
@@ -94,6 +98,7 @@
 
 <script src="../shared/auth-client.js"></script>
 <script src="../shared/auth-guard.js"></script>
+<script src="../shared/sidebar.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

@@ -7,15 +7,16 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Courier+Prime:wght@400;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../shared/theme.css">
-<link rel="stylesheet" href="theme.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div class="app-shell">
+  <div id="sidebarSlot"></div>
+  <main class="app-main">
 <div class="board">
 
   <header class="board-header">
     <div>
-      <a class="back-link" href="../dashboard/index.html">← Dashboard</a>
       <h1 class="chalk-title">Announcements</h1>
       <p class="chalk-sub">Post and manage school-wide notices</p>
     </div>
@@ -43,6 +44,8 @@
     <div class="pagination" id="pagination"></div>
   </section>
 
+</div>
+  </main>
 </div>
 
 <!-- Add / Edit modal -->
@@ -88,6 +91,7 @@
 
 <script src="../shared/auth-client.js"></script>
 <script src="../shared/auth-guard.js"></script>
+<script src="../shared/sidebar.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

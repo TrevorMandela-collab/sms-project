@@ -1,143 +1,229 @@
 /* =========================================================
    Dashboard module — School Management System
-   Pulls live data from the backend API. Requires
-   auth-client.js + auth-guard.js loaded first.
+   Reads from localStorage where possible (falls back to
+   sample data), same pattern as the Students/Teachers modules.
+   Swap the `fetchX()` functions for your Express endpoints
+   when the backend is wired up.
 ========================================================= */
 
-let calCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-let cachedEvents = [];
+const STORAGE_KEYS = {
+  students: "sms_students",
+  teachers: "sms_teachers",
+  announcements: "sms_announcements",
+  events: "sms_calendar_events",
+  fees: "sms_pending_fees",
+  attendance: "sms_attendance",
+};
 
-const money = (n) => `KSh ${Number(n || 0).toLocaleString('en-KE')}`;
-const shortDate = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
-const todayStr = () => new Date().toISOString().slice(0, 10);
+/* ---------- Sample fallback data ---------- */
+const SAMPLE = {
+  announcements: [
+    {
+      id: 1,
+      title: "Mid-term exams begin Monday",
+      body: "All classes to follow the revised exam timetable posted on the noticeboard.",
+      tag: "urgent",
+      date: "2026-08-04",
+    },
+    {
+      id: 2,
+      title: "PTA meeting rescheduled",
+      body: "Moved to Friday 3:00 PM in the main hall due to the inter-house games.",
+      tag: "info",
+      date: "2026-08-03",
+    },
+    {
+      id: 3,
+      title: "New library books arrived",
+      body: "Grade 6–8 students can now borrow the new science fiction collection.",
+      tag: "info",
+      date: "2026-08-01",
+    },
+    {
+      id: 4,
+      title: "Sports day sponsors needed",
+      body: "Reach out to the PTA office if your business would like to sponsor a house.",
+      tag: "general",
+      date: "2026-07-29",
+    },
+  ],
+  events: [
+    { date: "2026-08-07", name: "Mid-term exams begin" },
+    { date: "2026-08-10", name: "PTA meeting" },
+    { date: "2026-08-14", name: "Inter-house sports day" },
+    { date: "2026-08-21", name: "Term 2 closing day" },
+  ],
+  fees: [
+    {
+      student: "Amina Otieno",
+      class: "Grade 7B",
+      amount: 8500,
+      due: "2026-08-10",
+    },
+    {
+      student: "Brian Mwangi",
+      class: "Grade 5A",
+      amount: 12000,
+      due: "2026-08-12",
+    },
+    {
+      student: "Cynthia Wafula",
+      class: "Grade 8C",
+      amount: 5000,
+      due: "2026-08-15",
+    },
+    {
+      student: "David Kiprotich",
+      class: "Grade 6A",
+      amount: 9250,
+      due: "2026-08-09",
+    },
+  ],
+  students: Array.from({ length: 342 }),
+  teachers: Array.from({ length: 24 }),
+  enrollmentByClass: [
+    { label: "G4", value: 52 },
+    { label: "G5", value: 48 },
+    { label: "G6", value: 61 },
+    { label: "G7", value: 58 },
+    { label: "G8", value: 55 },
+    { label: "G9", value: 68 },
+  ],
+  attendanceLast7: [
+    { day: "Wed", rate: 94 },
+    { day: "Thu", rate: 96 },
+    { day: "Fri", rate: 89 },
+    { day: "Mon", rate: 97 },
+    { day: "Tue", rate: 95 },
+    { day: "Wed", rate: 93 },
+    { day: "Today", rate: 96 },
+  ],
+  attendanceToday: 96,
+  feesCollectedPct: 78,
+};
 
-/* =========================================================
-   Data loading — fetch everything in parallel, tolerate
-   individual failures (e.g. a module's collection is empty
-   or a role can't read one of them) without breaking the rest.
-========================================================= */
-async function loadDashboard() {
-  const user = SmsAuth.getUser();
-  document.getElementById('dashSubtitle').textContent =
-    user.role === 'parent' ? "Your children's overview" : 'Everything at a glance';
-
-  const results = await Promise.allSettled([
-    SmsAuth.apiFetch('/announcements'),
-    SmsAuth.apiFetch('/events'),
-    SmsAuth.apiFetch('/fees'),
-    SmsAuth.apiFetch('/students'),
-    SmsAuth.apiFetch('/teachers'),
-    SmsAuth.apiFetch('/attendance'),
-  ]);
-
-  const [announcementsR, eventsR, feesR, studentsR, teachersR, attendanceR] = results;
-
-  const announcements = announcementsR.status === 'fulfilled' ? announcementsR.value : [];
-  const events = eventsR.status === 'fulfilled' ? eventsR.value : [];
-  const fees = feesR.status === 'fulfilled' ? feesR.value : [];
-  const students = studentsR.status === 'fulfilled' ? studentsR.value : [];
-  const teachers = teachersR.status === 'fulfilled' ? teachersR.value : [];
-  const attendance = attendanceR.status === 'fulfilled' ? attendanceR.value : [];
-
-  cachedEvents = events;
-
-  renderAnnouncements(announcements, announcementsR.status === 'rejected' ? announcementsR.reason.message : null);
-  renderCalendar();
-  renderFees(fees);
-  renderStats(students, teachers, attendance, fees);
-  renderCharts(students, attendance);
-
-  // Stash for quick-action export
-  window.__dashboardFees = fees;
+function readStore(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
 }
+
+/* ---------- Formatting helpers ---------- */
+const money = (n) => `KSh ${Number(n).toLocaleString("en-KE")}`;
+const shortDate = (iso) =>
+  new Date(iso + "T00:00:00").toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+  });
 
 /* =========================================================
    Announcements
 ========================================================= */
-function renderAnnouncements(announcements, error) {
-  const list = document.getElementById('announcementList');
-  const tagColor = { urgent: 'var(--chalk-pink)', info: 'var(--chalk-blue)', general: 'var(--chalk-green)' };
+function renderAnnouncements() {
+  const data = readStore(
+    STORAGE_KEYS.announcements,
+    SAMPLE.announcements,
+  ).slice(0, 4);
+  const list = document.getElementById("announcementList");
+  const tagColor = {
+    urgent: "var(--chalk-pink)",
+    info: "var(--chalk-blue)",
+    general: "var(--chalk-green)",
+  };
 
-  if (error) {
-    list.innerHTML = `<li class="error-state">Couldn't load announcements: ${error}</li>`;
-    return;
-  }
-
-  const recent = [...announcements].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 4);
-
-  if (!recent.length) {
-    list.innerHTML = `<li class="empty-state">No announcements yet.</li>`;
-    return;
-  }
-
-  list.innerHTML = recent.map(a => `
+  list.innerHTML = data
+    .map(
+      (a) => `
     <li class="announcement-item">
-      <span class="announcement-dot" style="background:${tagColor[a.tag] || 'var(--chalk-white-dim)'}"></span>
+      <span class="announcement-dot" style="background:${tagColor[a.tag] || "var(--chalk-white-dim)"}"></span>
       <div class="announcement-body">
         <h4>${a.title}</h4>
         <p>${a.body}</p>
-        <span class="announcement-meta">${shortDate(a.createdAt)}</span>
+        <span class="announcement-meta">${shortDate(a.date)}</span>
       </div>
     </li>
-  `).join('');
+  `,
+    )
+    .join("");
 }
 
 /* =========================================================
    Calendar
 ========================================================= */
+let calCursor = new Date(2026, 7, 1); // August 2026 — replace with `new Date()` in production
+
 function renderCalendar() {
-  const grid = document.getElementById('calendarGrid');
-  const label = document.getElementById('calMonthLabel');
+  const events = readStore(STORAGE_KEYS.events, SAMPLE.events);
+  const grid = document.getElementById("calendarGrid");
+  const label = document.getElementById("calMonthLabel");
 
   const year = calCursor.getFullYear();
   const month = calCursor.getMonth();
-  const today = new Date();
+  const today = new Date(2026, 7, 5); // "current date" per system context
 
-  label.textContent = calCursor.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  label.textContent = calCursor.toLocaleDateString("en-GB", {
+    month: "long",
+    year: "numeric",
+  });
 
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const eventDays = new Set(
-    cachedEvents
-      .filter(e => {
-        const d = new Date(e.date);
+    events
+      .filter((e) => {
+        const d = new Date(e.date + "T00:00:00");
         return d.getFullYear() === year && d.getMonth() === month;
       })
-      .map(e => new Date(e.date).getDate())
+      .map((e) => new Date(e.date + "T00:00:00").getDate()),
   );
 
-  const dow = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
-  let html = dow.map(d => `<div class="cal-dow">${d}</div>`).join('');
-  for (let i = 0; i < firstDay; i++) html += `<div class="cal-day is-empty"></div>`;
+  const dow = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+  let html = dow.map((d) => `<div class="cal-dow">${d}</div>`).join("");
+
+  for (let i = 0; i < firstDay; i++)
+    html += `<div class="cal-day is-empty"></div>`;
 
   for (let day = 1; day <= daysInMonth; day++) {
-    const isToday = year === today.getFullYear() && month === today.getMonth() && day === today.getDate();
+    const isToday =
+      year === today.getFullYear() &&
+      month === today.getMonth() &&
+      day === today.getDate();
     const hasEvent = eventDays.has(day);
-    html += `<div class="cal-day ${isToday ? 'is-today' : ''} ${hasEvent ? 'has-event' : ''}">${day}</div>`;
+    html += `<div class="cal-day ${isToday ? "is-today" : ""} ${hasEvent ? "has-event" : ""}">${day}</div>`;
   }
+
   grid.innerHTML = html;
 
-  const eventList = document.getElementById('calEventList');
-  const upcoming = cachedEvents
-    .filter(e => new Date(e.date) >= new Date(today.toDateString()))
+  const eventList = document.getElementById("calEventList");
+  const upcoming = events
+    .filter((e) => new Date(e.date + "T00:00:00") >= today)
     .sort((a, b) => new Date(a.date) - new Date(b.date))
     .slice(0, 4);
 
-  eventList.innerHTML = upcoming.length
-    ? upcoming.map(e => `
-        <li class="cal-event-item">
-          <span class="cal-event-date">${shortDate(e.date)}</span>
-          <span class="cal-event-name">${e.name}</span>
-        </li>
-      `).join('')
-    : `<li class="cal-event-item"><span class="cal-event-name">No upcoming events.</span></li>`;
+  eventList.innerHTML =
+    upcoming
+      .map(
+        (e) => `
+    <li class="cal-event-item">
+      <span class="cal-event-date">${shortDate(e.date)}</span>
+      <span class="cal-event-name">${e.name}</span>
+    </li>
+  `,
+      )
+      .join("") ||
+    '<li class="cal-event-item"><span class="cal-event-name">No upcoming events.</span></li>';
 }
 
-document.getElementById('calPrev').addEventListener('click', () => {
+document.getElementById("calPrev").addEventListener("click", () => {
   calCursor.setMonth(calCursor.getMonth() - 1);
   renderCalendar();
 });
-document.getElementById('calNext').addEventListener('click', () => {
+document.getElementById("calNext").addEventListener("click", () => {
   calCursor.setMonth(calCursor.getMonth() + 1);
   renderCalendar();
 });
@@ -145,31 +231,32 @@ document.getElementById('calNext').addEventListener('click', () => {
 /* =========================================================
    Pending Fees
 ========================================================= */
-function renderFees(fees) {
-  const pending = fees.filter(f => f.status !== 'paid').sort((a, b) => new Date(a.due) - new Date(b.due));
-  const tbody = document.getElementById('feesTableBody');
-  const total = pending.reduce((sum, f) => sum + Number(f.amount || 0), 0);
+function renderFees() {
+  const data = readStore(STORAGE_KEYS.fees, SAMPLE.fees);
+  const tbody = document.getElementById("feesTableBody");
+  const total = data.reduce((sum, f) => sum + Number(f.amount), 0);
 
-  document.getElementById('feesTotalBadge').textContent = money(total);
+  document.getElementById("feesTotalBadge").textContent = money(total);
 
-  if (!pending.length) {
-    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state">No pending fees 🎉</div></td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = pending.slice(0, 6).map(f => `
+  tbody.innerHTML = data
+    .map(
+      (f) => `
     <tr>
-      <td>${f.studentName || f.student || '—'}</td>
-      <td>${f.class || '—'}</td>
+      <td>${f.student}</td>
+      <td>${f.class}</td>
       <td class="amount-due">${money(f.amount)}</td>
-      <td>${f.due ? shortDate(f.due) : '—'}</td>
-      <td><button class="remind-btn" data-remind="${f.studentName || f.student}">Remind</button></td>
+      <td>${shortDate(f.due)}</td>
+      <td><button class="remind-btn" data-remind="${f.student}">Remind</button></td>
     </tr>
-  `).join('');
+  `,
+    )
+    .join("");
 
-  tbody.querySelectorAll('[data-remind]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      showToast(`Reminder queued for ${btn.dataset.remind}. Wire this up to your notifications/email service.`);
+  tbody.querySelectorAll("[data-remind]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      alert(
+        `Reminder queued for ${btn.dataset.remind}. Wire this up to your notifications/email service.`,
+      );
     });
   });
 }
@@ -177,103 +264,92 @@ function renderFees(fees) {
 /* =========================================================
    Charts & Statistics
 ========================================================= */
-function renderStats(students, teachers, attendance, fees) {
-  document.getElementById('statTotalStudents').textContent = students.length;
-  document.getElementById('statTotalTeachers').textContent = teachers.length;
+function renderStatCards() {
+  const students = readStore(STORAGE_KEYS.students, SAMPLE.students);
+  const teachers = readStore(STORAGE_KEYS.teachers, SAMPLE.teachers);
 
-  const todaysAttendance = attendance.filter(a => a.date === todayStr());
-  const attendanceRate = todaysAttendance.length
-    ? Math.round((todaysAttendance.filter(a => a.status === 'present').length / todaysAttendance.length) * 100)
-    : null;
-  document.getElementById('statAttendanceRate').textContent = attendanceRate === null ? '—' : `${attendanceRate}%`;
-
-  const totalFees = fees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
-  const paidFees = fees.filter(f => f.status === 'paid').reduce((sum, f) => sum + Number(f.amount || 0), 0);
-  const feesPct = totalFees ? Math.round((paidFees / totalFees) * 100) : 0;
-  document.getElementById('statFeesCollected').textContent = `${feesPct}%`;
+  document.getElementById("statTotalStudents").textContent = students.length;
+  document.getElementById("statTotalTeachers").textContent = teachers.length;
+  document.getElementById("statAttendanceRate").textContent =
+    `${SAMPLE.attendanceToday}%`;
+  document.getElementById("statFeesCollected").textContent =
+    `${SAMPLE.feesCollectedPct}%`;
 }
 
-let enrollmentChartInstance = null;
-let attendanceChartInstance = null;
-
 function chalkChartDefaults() {
-  Chart.defaults.color = '#cfcabb';
+  Chart.defaults.color = getComputedStyle(document.body)
+    .getPropertyValue("--chalk-white-dim")
+    .trim();
   Chart.defaults.font.family = "'Courier Prime', monospace";
   Chart.defaults.font.size = 11;
 }
 
-function renderCharts(students, attendance) {
+function renderCharts() {
   chalkChartDefaults();
-  const chalkYellow = '#e3c567';
-  const chalkBlue = '#7fb3c9';
-  const chalkWhite = '#f0ede1';
-  const gridColor = 'rgba(240,237,225,0.08)';
+  const chalkWhite = "#f0ede1";
+  const chalkYellow = "#e3c567";
+  const chalkBlue = "#7fb3c9";
+  const gridColor = "rgba(240,237,225,0.08)";
 
-  // Enrollment by class
-  const byClass = {};
-  students.forEach(s => {
-    const cls = s.class || 'Unassigned';
-    byClass[cls] = (byClass[cls] || 0) + 1;
-  });
-  const classLabels = Object.keys(byClass).sort();
-  const classValues = classLabels.map(l => byClass[l]);
-
-  if (enrollmentChartInstance) enrollmentChartInstance.destroy();
-  enrollmentChartInstance = new Chart(document.getElementById('enrollmentChart'), {
-    type: 'bar',
+  // Enrollment by class — chalk-sketch bar chart
+  new Chart(document.getElementById("enrollmentChart"), {
+    type: "bar",
     data: {
-      labels: classLabels.length ? classLabels : ['No data'],
-      datasets: [{
-        data: classValues.length ? classValues : [0],
-        backgroundColor: 'transparent',
-        borderColor: chalkYellow,
-        borderWidth: 2,
-        borderRadius: 3,
-        barThickness: 18,
-      }],
+      labels: SAMPLE.enrollmentByClass.map((d) => d.label),
+      datasets: [
+        {
+          data: SAMPLE.enrollmentByClass.map((d) => d.value),
+          backgroundColor: "transparent",
+          borderColor: chalkYellow,
+          borderWidth: 2,
+          borderRadius: 3,
+          barThickness: 18,
+        },
+      ],
     },
     options: {
       responsive: true,
       plugins: { legend: { display: false } },
       scales: {
         x: { grid: { display: false }, border: { color: gridColor } },
-        y: { grid: { color: gridColor }, border: { display: false }, beginAtZero: true },
+        y: {
+          grid: { color: gridColor },
+          border: { display: false },
+          beginAtZero: true,
+        },
       },
     },
   });
 
-  // Attendance — last 7 distinct dates present in the data
-  const byDate = {};
-  attendance.forEach(a => {
-    if (!byDate[a.date]) byDate[a.date] = { present: 0, total: 0 };
-    byDate[a.date].total++;
-    if (a.status === 'present') byDate[a.date].present++;
-  });
-  const last7Dates = Object.keys(byDate).sort().slice(-7);
-  const attLabels = last7Dates.map(d => new Date(d).toLocaleDateString('en-GB', { weekday: 'short' }));
-  const attValues = last7Dates.map(d => Math.round((byDate[d].present / byDate[d].total) * 100));
-
-  if (attendanceChartInstance) attendanceChartInstance.destroy();
-  attendanceChartInstance = new Chart(document.getElementById('attendanceChart'), {
-    type: 'line',
+  // Attendance last 7 days — chalk-sketch line chart
+  new Chart(document.getElementById("attendanceChart"), {
+    type: "line",
     data: {
-      labels: attLabels.length ? attLabels : ['No data'],
-      datasets: [{
-        data: attValues.length ? attValues : [0],
-        borderColor: chalkBlue,
-        backgroundColor: 'transparent',
-        borderWidth: 2,
-        tension: 0.35,
-        pointBackgroundColor: chalkWhite,
-        pointRadius: 3,
-      }],
+      labels: SAMPLE.attendanceLast7.map((d) => d.day),
+      datasets: [
+        {
+          data: SAMPLE.attendanceLast7.map((d) => d.rate),
+          borderColor: chalkBlue,
+          backgroundColor: "transparent",
+          borderWidth: 2,
+          tension: 0.35,
+          pointBackgroundColor: chalkWhite,
+          pointRadius: 3,
+          borderDash: [0],
+        },
+      ],
     },
     options: {
       responsive: true,
       plugins: { legend: { display: false } },
       scales: {
         x: { grid: { display: false }, border: { color: gridColor } },
-        y: { grid: { color: gridColor }, border: { display: false }, suggestedMin: 0, suggestedMax: 100 },
+        y: {
+          grid: { color: gridColor },
+          border: { display: false },
+          suggestedMin: 80,
+          suggestedMax: 100,
+        },
       },
     },
   });
@@ -281,76 +357,114 @@ function renderCharts(students, attendance) {
 
 /* =========================================================
    Quick Actions
+   NOTE: this dashboard is standalone right now — it doesn't
+   assume attendance/fees/announcements pages exist. Each
+   action below shows a placeholder toast. Once you build
+   those modules, replace the toast call with:
+     window.location.href = '../attendance/index.html';
+   (adjust the path to match your real folder structure)
 ========================================================= */
 function showToast(message) {
-  const existing = document.querySelector('.toast');
+  const existing = document.querySelector(".toast");
   if (existing) existing.remove();
 
-  const toast = document.createElement('div');
-  toast.className = 'toast';
+  const toast = document.createElement("div");
+  toast.className = "toast";
   toast.textContent = message;
   document.body.appendChild(toast);
 
-  requestAnimationFrame(() => toast.classList.add('is-visible'));
+  requestAnimationFrame(() => toast.classList.add("is-visible"));
   setTimeout(() => {
-    toast.classList.remove('is-visible');
+    toast.classList.remove("is-visible");
     setTimeout(() => toast.remove(), 300);
   }, 2600);
 }
 
-const ACTION_MESSAGES = {};
+const ACTION_MESSAGES = {
+  "mark-attendance": "This will open your Attendance module once it's built.",
+  "record-payment": "This will open your Fees module once it's built.",
+};
 
-document.querySelectorAll('.chalk-btn[data-action]').forEach(btn => {
-  btn.addEventListener('click', () => {
+document.querySelectorAll(".chalk-btn[data-action]").forEach((btn) => {
+  btn.addEventListener("click", () => {
     const action = btn.dataset.action;
-    if (action === 'export-report') {
+    if (action === "export-report") {
       exportSummaryCSV();
       return;
     }
-    if (action === 'new-announcement') {
-      window.location.href = '../announcements/index.html?action=new';
+    if (action === "new-announcement") {
+      window.location.href = "../announcements/index.html?action=new";
       return;
     }
-    if (action === 'mark-attendance') {
-      window.location.href = '../attendance/index.html';
-      return;
-    }
-    if (action === 'record-payment') {
-      window.location.href = '../fees/index.html?action=new';
-      return;
-    }
-    showToast(ACTION_MESSAGES[action] || 'Coming soon.');
+    showToast(ACTION_MESSAGES[action] || "Coming soon.");
   });
 });
 
-document.querySelector('[data-action="view-all-announcements"]')?.addEventListener('click', () => {
-  window.location.href = '../announcements/index.html';
-});
+document
+  .querySelector('[data-action="view-all-announcements"]')
+  ?.addEventListener("click", () => {
+    window.location.href = "../announcements/index.html";
+  });
 
 function exportSummaryCSV() {
-  const fees = window.__dashboardFees || [];
+  const fees = readStore(STORAGE_KEYS.fees, SAMPLE.fees);
   const rows = [
-    ['Student', 'Class', 'Amount Due', 'Due Date', 'Status'],
-    ...fees.map(f => [f.studentName || f.student, f.class, f.amount, f.due, f.status]),
+    ["Student", "Class", "Amount Due", "Due Date"],
+    ...fees.map((f) => [f.student, f.class, f.amount, f.due]),
   ];
-  const csv = rows.map(r => r.join(',')).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
+  const csv = rows.map((r) => r.join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
+  const a = document.createElement("a");
   a.href = url;
-  a.download = 'fees-report.csv';
+  a.download = "pending-fees-report.csv";
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/* =========================================================
+   Welcome Banner
+========================================================= */
+function renderWelcomeBanner() {
+  const user = (typeof SmsAuth !== 'undefined' && SmsAuth.getUser) ? SmsAuth.getUser() : null;
+  const firstName = user?.name ? user.name.split(' ')[0] : 'back';
+  document.getElementById('welcomeHeading').textContent = `Welcome back, ${firstName}!`;
+
+  const students = readStore(STORAGE_KEYS.students, SAMPLE.students);
+  const teachers = readStore(STORAGE_KEYS.teachers, SAMPLE.teachers);
+  const events = readStore(STORAGE_KEYS.events, SAMPLE.events);
+  const upcomingCount = events.filter(e => new Date(e.date + 'T00:00:00') >= new Date(2026, 7, 5)).length;
+
+  document.getElementById('welcomeChips').innerHTML = `
+    <span class="welcome-chip">${students.length} Students</span>
+    <span class="welcome-chip">${teachers.length} Teachers</span>
+    <span class="welcome-chip">${upcomingCount} Upcoming Events</span>
+  `;
 }
 
 /* =========================================================
    Init
 ========================================================= */
 function setTodayChip() {
-  document.getElementById('todayDate').textContent = new Date().toLocaleDateString('en-GB', {
-    weekday: 'long', day: 'numeric', month: 'long',
-  });
+  const today = new Date(2026, 7, 5);
+  document.getElementById("todayDate").textContent = today.toLocaleDateString(
+    "en-GB",
+    {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+    },
+  );
 }
 
-setTodayChip();
-loadDashboard();
+function init() {
+  setTodayChip();
+  renderWelcomeBanner();
+  renderAnnouncements();
+  renderCalendar();
+  renderFees();
+  renderStatCards();
+  renderCharts();
+}
+
+document.addEventListener("DOMContentLoaded", init);
