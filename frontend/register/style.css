@@ -1,0 +1,7 @@
+/* Register page reuses the login card styling almost entirely — this
+   file only holds small overrides specific to this page. */
+
+#regCode {
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+}

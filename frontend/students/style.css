@@ -62,3 +62,15 @@
 
 .icon-btn:hover { color: var(--chalk-yellow); border-color: var(--chalk-yellow); }
 .icon-btn.danger:hover { color: var(--chalk-pink); border-color: var(--chalk-pink); }
+
+.invite-code-box {
+  font-family: var(--font-mono);
+  font-size: 1.4rem;
+  letter-spacing: 0.1em;
+  text-align: center;
+  background: rgba(255,255,255,0.05);
+  border: 1px dashed var(--rail-line);
+  border-radius: 6px;
+  padding: 14px;
+  margin: 10px 0 4px;
+}

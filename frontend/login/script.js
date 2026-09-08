@@ -13,9 +13,9 @@ const modeSubtitle = document.getElementById('modeSubtitle');
 const loginFootnote = document.getElementById('loginFootnote');
 const showBootstrapBtn = document.getElementById('showBootstrapBtn');
 
-// If already logged in, skip straight to the dashboard.
+// If already logged in, skip straight to the right home page for the role.
 if (SmsAuth.isLoggedIn()) {
-  window.location.href = '../dashboard/index.html';
+  window.location.href = SmsAuth.homeUrlForRole(SmsAuth.getUser()?.role);
 }
 
 function showError(message) {
@@ -42,8 +42,8 @@ loginForm.addEventListener('submit', async (e) => {
   const password = document.getElementById('loginPassword').value;
 
   try {
-    await SmsAuth.login(email, password);
-    window.location.href = '../dashboard/index.html';
+    const user = await SmsAuth.login(email, password);
+    window.location.href = SmsAuth.homeUrlForRole(user.role);
   } catch (err) {
     showError(err.message);
   }

@@ -7,9 +7,9 @@
    and surfaces API errors consistently.
 ========================================================= */
 
-const SMS_API_BASE = 'http://localhost:4000/api';
-const TOKEN_KEY = 'sms_token';
-const USER_KEY = 'sms_user';
+const SMS_API_BASE = "http://localhost:4000/api";
+const TOKEN_KEY = "sms_token";
+const USER_KEY = "sms_user";
 
 const SmsAuth = {
   getToken() {
@@ -33,6 +33,16 @@ const SmsAuth = {
     return !!user && roles.includes(user.role);
   },
 
+  /**
+   * Where a given role should land after login (relative to any
+   * module page, since every module folder sits one level deep).
+   */
+  homeUrlForRole(role) {
+    if (role === "student") return "../student-portal/index.html";
+    if (role === "parent") return "../parent-portal/index.html";
+    return "../dashboard/index.html";
+  },
+
   setSession(token, user) {
     localStorage.setItem(TOKEN_KEY, token);
     localStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -45,35 +55,53 @@ const SmsAuth = {
 
   logout() {
     this.clearSession();
-    window.location.href = '../login/index.html';
+    window.location.href = "../login/index.html";
   },
 
   async login(email, password) {
     const res = await fetch(`${SMS_API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Login failed.');
+    if (!res.ok) throw new Error(data.error || "Login failed.");
     this.setSession(data.token, data.user);
     return data.user;
   },
 
   async register(payload) {
     const res = await fetch(`${SMS_API_BASE}/auth/register`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        ...(this.getToken() ? { Authorization: `Bearer ${this.getToken()}` } : {}),
+        "Content-Type": "application/json",
+        ...(this.getToken()
+          ? { Authorization: `Bearer ${this.getToken()}` }
+          : {}),
       },
       body: JSON.stringify(payload),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Registration failed.');
+    if (!res.ok) throw new Error(data.error || "Registration failed.");
     // Only auto-store the session if this was the bootstrap (first) admin
     if (data.isFirstAdmin) this.setSession(data.token, data.user);
     return data;
+  },
+
+  /**
+   * Public student self-registration via an admin-issued invite code.
+   * Logs the new student in immediately on success.
+   */
+  async registerWithCode({ code, name, email, password }) {
+    const res = await fetch(`${SMS_API_BASE}/auth/register-with-code`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, name, email, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Registration failed.");
+    this.setSession(data.token, data.user);
+    return data.user;
   },
 
   /**
@@ -81,12 +109,14 @@ const SmsAuth = {
    * Usage: await SmsAuth.apiFetch('/students')
    *        await SmsAuth.apiFetch('/students', { method: 'POST', body: {...} })
    */
-  async apiFetch(path, { method = 'GET', body } = {}) {
+  async apiFetch(path, { method = "GET", body } = {}) {
     const res = await fetch(`${SMS_API_BASE}${path}`, {
       method,
       headers: {
-        'Content-Type': 'application/json',
-        ...(this.getToken() ? { Authorization: `Bearer ${this.getToken()}` } : {}),
+        "Content-Type": "application/json",
+        ...(this.getToken()
+          ? { Authorization: `Bearer ${this.getToken()}` }
+          : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
     });
@@ -94,14 +124,15 @@ const SmsAuth = {
     if (res.status === 401) {
       // Token missing/expired — send back to login
       this.clearSession();
-      window.location.href = '../login/index.html';
-      throw new Error('Session expired. Please log in again.');
+      window.location.href = "../login/index.html";
+      throw new Error("Session expired. Please log in again.");
     }
 
     if (res.status === 204) return null;
 
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `Request failed (${res.status}).`);
+    if (!res.ok)
+      throw new Error(data.error || `Request failed (${res.status}).`);
     return data;
   },
 };

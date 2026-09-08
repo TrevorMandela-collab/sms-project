@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Classes & Subjects — School Management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Courier+Prime:wght@400;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/theme.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-shell">
+  <div id="sidebarSlot"></div>
+  <main class="app-main">
+<div class="board">
+
+  <header class="board-header">
+    <div>
+      <h1 class="chalk-title">Classes & Subjects</h1>
+      <p class="chalk-sub">Manage class sections and the subjects taught in each</p>
+    </div>
+    <div class="header-right" style="display:flex; align-items:center; gap:16px;">
+      <div id="userBadgeSlot"></div>
+      <button class="chalk-btn" id="newClassBtn" data-requires-role="admin">＋ Add Class</button>
+      <button class="chalk-btn chalk-btn--outline" id="newSubjectBtn" data-requires-role="admin">＋ Add Subject</button>
+    </div>
+  </header>
+
+  <section class="stat-strip">
+    <div class="stat-card">
+      <span class="stat-value" id="statClasses">0</span>
+      <span class="stat-label">Classes</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value" id="statSubjects">0</span>
+      <span class="stat-label">Subjects</span>
+    </div>
+  </section>
+
+  <div class="cs-tabs">
+    <button class="cs-tab is-active" data-tab="classes">Classes</button>
+    <button class="cs-tab" data-tab="subjects">Subjects</button>
+  </div>
+
+  <!-- ===== Classes tab ===== -->
+  <section class="panel cs-panel" id="classesPanel">
+    <div class="panel-head">
+      <h2>Classes</h2>
+      <div class="filter-row">
+        <input type="search" id="classSearchInput" placeholder="Search by class name...">
+      </div>
+    </div>
+
+    <table class="ledger-table">
+      <thead>
+        <tr>
+          <th>Class</th>
+          <th>Homeroom Teacher</th>
+          <th>Subjects</th>
+          <th data-requires-role="admin"></th>
+        </tr>
+      </thead>
+      <tbody id="classesTableBody"></tbody>
+    </table>
+
+    <div class="pagination" id="classesPagination"></div>
+  </section>
+
+  <!-- ===== Subjects tab ===== -->
+  <section class="panel cs-panel" id="subjectsPanel" style="display:none;">
+    <div class="panel-head">
+      <h2>Subjects</h2>
+      <div class="filter-row">
+        <input type="search" id="subjectSearchInput" placeholder="Search by subject name or code...">
+      </div>
+    </div>
+
+    <table class="ledger-table">
+      <thead>
+        <tr>
+          <th>Subject</th>
+          <th>Code</th>
+          <th>Used in Classes</th>
+          <th data-requires-role="admin"></th>
+        </tr>
+      </thead>
+      <tbody id="subjectsTableBody"></tbody>
+    </table>
+
+    <div class="pagination" id="subjectsPagination"></div>
+  </section>
+
+</div>
+  </main>
+</div>
+
+<!-- Add / Edit Class modal -->
+<div class="modal-overlay" id="classModalOverlay">
+  <div class="modal-box">
+    <h3 id="classModalTitle">Add Class</h3>
+    <form id="classForm">
+      <input type="hidden" id="classId">
+      <div class="form-field">
+        <label for="clsName">Class Name</label>
+        <input type="text" id="clsName" placeholder="e.g. Grade 5A" required>
+      </div>
+      <div class="form-field">
+        <label for="clsTeacher">Homeroom Teacher</label>
+        <select id="clsTeacher">
+          <option value="">— None —</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label>Subjects Taught</label>
+        <div class="checkbox-list" id="clsSubjectChecklist"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="chalk-btn chalk-btn--outline" id="cancelClassModalBtn">Cancel</button>
+        <button type="submit" class="chalk-btn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Add / Edit Subject modal -->
+<div class="modal-overlay" id="subjectModalOverlay">
+  <div class="modal-box">
+    <h3 id="subjectModalTitle">Add Subject</h3>
+    <form id="subjectForm">
+      <input type="hidden" id="subjectId">
+      <div class="form-field">
+        <label for="subName">Subject Name</label>
+        <input type="text" id="subName" placeholder="e.g. Mathematics" required>
+      </div>
+      <div class="form-field">
+        <label for="subCode">Code</label>
+        <input type="text" id="subCode" placeholder="e.g. MATH">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="chalk-btn chalk-btn--outline" id="cancelSubjectModalBtn">Cancel</button>
+        <button type="submit" class="chalk-btn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="../shared/auth-client.js"></script>
+<script src="../shared/auth-guard.js"></script>
+<script src="../shared/sidebar.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

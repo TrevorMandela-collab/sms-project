@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Portal — School Management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Courier+Prime:wght@400;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/theme.css">
+<link rel="stylesheet" href="../shared/portal.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-shell">
+  <div id="sidebarSlot"></div>
+  <main class="app-main">
+<div class="board">
+
+  <header class="board-header">
+    <div>
+      <h1 class="chalk-title">My Portal</h1>
+      <p class="chalk-sub" id="portalSub">Your school record, all in one place</p>
+    </div>
+    <div class="header-right" style="display:flex; align-items:center; gap:16px;">
+      <div id="userBadgeSlot"></div>
+    </div>
+  </header>
+
+  <div class="portal-tabs" id="portalTabs">
+    <button class="portal-tab is-active" data-tab="attendance">Attendance</button>
+    <button class="portal-tab" data-tab="exams">Exams &amp; Results</button>
+    <button class="portal-tab" data-tab="fees">Fees</button>
+    <button class="portal-tab" data-tab="timetable">Timetable</button>
+    <button class="portal-tab" data-tab="assignments">Assignments</button>
+    <button class="portal-tab" data-tab="announcements">Announcements</button>
+  </div>
+
+  <section class="panel">
+    <div id="portalContent"><div class="loading-state">Loading…</div></div>
+  </section>
+
+</div>
+  </main>
+</div>
+
+<script src="../shared/auth-client.js"></script>
+<script src="../shared/auth-guard.js"></script>
+<script src="../shared/sidebar.js"></script>
+<script src="../shared/portal-views.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

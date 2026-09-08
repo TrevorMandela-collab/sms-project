@@ -9,25 +9,45 @@ exams, timetable, and library.
 ```bash
 cd sms-backend
 npm install
-cp .env.example .env      # then edit JWT_SECRET to something random
+cp .env.example .env      # then edit JWT_SECRET and DATABASE_URL
 npm start                 # or: npm run dev (auto-restarts on file changes)
 ```
 
+You need a Postgres database — pick one:
+- **Render**: New → PostgreSQL (free tier available). Copy the "Internal
+  Database URL" if your backend is also on Render, or "External Database
+  URL" otherwise.
+- **Neon** (neon.tech) or **Supabase** (supabase.com) — both have a
+  permanently free tier and give you a connection string on signup.
+
+Paste that connection string into `DATABASE_URL` in `.env` (locally) and
+into your Render service's environment variables (in production — `.env`
+is never read there, only local `.env` files are).
+
 Server runs on `http://localhost:4000` by default. Health check:
-`GET /api/health`.
+`GET /api/health`. Watch the startup logs for `[db] Connected and schema
+ready.` — if you instead see `[db] FAILED to connect`, `DATABASE_URL` is
+missing or wrong.
 
 ## Data storage
 
-Records live as JSON files under `/data` (one file per collection, created
-automatically on first write). No database setup needed to get started.
-When you're ready for a real database, swap `utils/db.js` for a Postgres/
-MySQL version — every route file calls the same five functions
-(`readAll`, `findById`, `insert`, `update`, `remove`), so nothing else needs
-to change.
+Records live in a single Postgres table (`store`), one row per record,
+keyed by `(collection, id)` with the record itself as JSONB — see
+`utils/db.js`. This is a genuine, persistent database: unlike the
+project's original JSON-file storage, it survives your app container
+restarting, redeploying, or (on Render's free tier) spinning down after
+inactivity. Every route file calls the same five async functions
+(`readAll`, `findById`, `insert`, `update`, `remove`), so if you later
+want a normalized relational schema instead of one big JSONB table, only
+`utils/db.js` needs to change.
+
+**Important:** without a working `DATABASE_URL`, nothing persists at all
+and every request will fail once the connection is attempted. This is
+not optional configuration — set it before deploying.
 
 ## Roles
 
-Three roles: `admin`, `teacher`, `parent`.
+Four roles: `admin`, `teacher`, `parent`, `student`.
 
 - **The very first account you register becomes the admin automatically**
   (bootstrap). After that, `POST /api/auth/register` requires an admin's
@@ -36,19 +56,43 @@ Three roles: `admin`, `teacher`, `parent`.
 - **teacher** — can create/edit attendance, exams, and announcements; can
   read (but not delete) most things; cannot delete students or manage fees.
 - **parent** — read-only, and automatically scoped to their own children.
-  A parent's account has a `childIds` array (student IDs); attendance,
-  fees, and exam endpoints filter results so a parent only ever sees their
-  own kids' records — even if they call the API directly.
+  A parent's account has a `childIds` array (student IDs); attendance, fees,
+  exams, assignments, and timetable endpoints filter results so a parent
+  only ever sees their own kids' records — even if they call the API
+  directly. (Assignments/timetable are scoped by matching each child's
+  `class` against the assignment's/timetable entry's class.)
+- **student** — read-only, and automatically scoped to their own record.
+  A student's account has a `studentId` (the linked `students` record);
+  the same collections as above are filtered to that one student. Students
+  don't self-register with a password up front — see the invite-code flow
+  below.
 
 ## Auth flow
 
 ```
-POST /api/auth/register   { name, email, password, role, childIds? }
-POST /api/auth/login      { email, password }  -> { user, token }
-GET  /api/auth/me         (requires Bearer token)
+POST /api/auth/register            { name, email, password, role, childIds? }  (admin/teacher/parent — admin-only after bootstrap)
+POST /api/auth/register-with-code  { code, name, email, password }             (student — public, redeems an invite code)
+POST /api/auth/login               { email, password }  -> { user, token }
+GET  /api/auth/me                  (requires Bearer token)
 ```
 
 Every other route requires `Authorization: Bearer <token>`.
+
+## Student invite codes
+
+Students don't get an admin/teacher-created account like other roles —
+instead an admin generates a single-use invite code tied to a specific
+`students` record, and the student redeems it themselves:
+
+```
+POST   /api/invite-codes             { studentId, expiresInDays? }   (admin only) -> { code, expiresAt, ... }
+GET    /api/invite-codes?studentId=  (admin only) -> list codes, e.g. to check for an outstanding one
+DELETE /api/invite-codes/:id         (admin only) -> revoke an unused code
+```
+
+The student then calls `POST /api/auth/register-with-code` with that code
+plus their own name/email/password. On success the code is marked used and
+a `student`-role account is created and linked to that `studentId`.
 
 ## Endpoints
 
@@ -62,8 +106,13 @@ PATCH  /api/<collection>/:id   update
 DELETE /api/<collection>/:id   delete
 ```
 
-Collections: `students`, `teachers`, `announcements`, `attendance`, `fees`,
-`exams`, `timetable`, `library`, `library-loans`, `events`.
+Collections: `students`, `teachers`, `subjects`, `classes`, `assignments`,
+`assignment-submissions`, `announcements`, `attendance`, `fees`, `exams`,
+`timetable`, `library`, `library-loans`, `events`.
+
+`invite-codes` is managed separately under `/api/invite-codes` (see above)
+rather than through the generic CRUD shape, since generating a code has
+its own logic (random code, expiry, single-use).
 
 ### Record shapes (suggested — the API doesn't enforce a schema)
 

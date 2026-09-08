@@ -10,11 +10,13 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div class="app-shell">
+  <div id="sidebarSlot"></div>
+  <main class="app-main">
 <div class="board">
 
   <header class="board-header">
     <div>
-      <a class="back-link" href="../dashboard/index.html">← Dashboard</a>
       <h1 class="chalk-title">Students</h1>
       <p class="chalk-sub">Manage student records and enrollment</p>
     </div>
@@ -63,6 +65,8 @@
   </section>
 
 </div>
+  </main>
+</div>
 
 <!-- Add / Edit modal -->
 <div class="modal-overlay" id="studentModalOverlay">
@@ -96,8 +100,27 @@
   </div>
 </div>
 
+<!-- Invite code (student login) modal -->
+<div class="modal-overlay" id="inviteModalOverlay">
+  <div class="modal-box">
+    <h3>Student Login</h3>
+    <p class="chalk-sub" id="inviteModalSub" style="margin-top:-8px;"></p>
+    <div class="invite-code-box" id="inviteCodeBox">—</div>
+    <p class="chalk-sub" id="inviteMeta" style="font-size:0.75rem;"></p>
+    <p class="chalk-sub" style="font-size:0.75rem;">Copy the code, or copy a ready-to-send message (or email it directly if this student has a guardian email on file) — they'll enter the code on the "Register as a student" page to set up their own login.</p>
+    <div class="modal-actions" style="flex-wrap:wrap;">
+      <button type="button" class="chalk-btn chalk-btn--outline" id="closeInviteModalBtn">Close</button>
+      <button type="button" class="chalk-btn chalk-btn--outline" id="copyInviteBtn">Copy Code</button>
+      <button type="button" class="chalk-btn chalk-btn--outline" id="copyMessageBtn">Copy Message</button>
+      <a class="chalk-btn chalk-btn--outline" id="emailInviteBtn" style="display:none; text-decoration:none;" href="#">Email It</a>
+      <button type="button" class="chalk-btn" id="generateInviteBtn">Generate New Code</button>
+    </div>
+  </div>
+</div>
+
 <script src="../shared/auth-client.js"></script>
 <script src="../shared/auth-guard.js"></script>
+<script src="../shared/sidebar.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

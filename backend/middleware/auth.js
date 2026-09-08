@@ -41,7 +41,17 @@ function requireRole(...allowedRoles) {
 
 function signToken(user) {
   return jwt.sign(
-    { id: user.id, name: user.name, email: user.email, role: user.role, childIds: user.childIds || [] },
+    {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      childIds: user.childIds || [],
+      // Present only for role === 'student' — the linked students record id.
+      studentId: user.studentId || null,
+      // Present only for role === 'teacher' — the linked teachers record id.
+      teacherId: user.teacherId || null,
+    },
     JWT_SECRET,
     { expiresIn: '7d' }
   );

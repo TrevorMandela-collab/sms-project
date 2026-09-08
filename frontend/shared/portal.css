@@ -1,0 +1,139 @@
+/* =========================================================
+   Shared styling for the student & parent portals — tab
+   strip, timetable grid, and the status/grade badges reused
+   from the admin modules (kept in sync with exams/fees style.css).
+========================================================= */
+
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+  max-width: 500px;
+}
+.stat-card {
+  background: var(--board-bg-dark);
+  border: 1px dashed var(--rail-line);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: center;
+}
+.stat-value { display: block; font-family: var(--font-display); font-size: 1.6rem; color: var(--chalk-yellow); }
+.stat-label { display: block; font-family: var(--font-mono); font-size: 0.68rem; color: var(--chalk-white-dim); margin-top: 4px; text-transform: uppercase; }
+
+.portal-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.portal-tab {
+  background: var(--board-bg);
+  border: 1px solid var(--rail-line-strong);
+  color: var(--chalk-white-dim);
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  padding: 8px 16px;
+  border-radius: 20px;
+  cursor: pointer;
+}
+
+.portal-tab.is-active {
+  background: var(--chalk-yellow);
+  color: var(--board-bg-dark);
+  border-color: var(--chalk-yellow);
+  font-weight: 600;
+}
+
+.child-selector {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.child-chip {
+  background: var(--board-bg);
+  border: 1px solid var(--rail-line-strong);
+  color: var(--chalk-white-dim);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  padding: 9px 18px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.child-chip.is-active {
+  background: var(--chalk-blue);
+  color: var(--board-bg-dark);
+  border-color: var(--chalk-blue);
+  font-weight: 600;
+}
+
+.status-pill {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.status-pill--paid { background: var(--chalk-green); color: var(--board-bg-dark); }
+.status-pill--pending { background: var(--chalk-yellow); color: var(--board-bg-dark); }
+.status-pill--overdue { background: var(--chalk-pink); color: var(--board-bg-dark); }
+
+.grade-badge {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 4px;
+}
+.grade-badge--a { background: var(--chalk-green); color: var(--board-bg-dark); }
+.grade-badge--b { background: var(--chalk-blue); color: var(--board-bg-dark); }
+.grade-badge--c { background: var(--chalk-yellow); color: var(--board-bg-dark); }
+.grade-badge--d, .grade-badge--e { background: var(--chalk-pink); color: var(--board-bg-dark); }
+
+.tag-chip {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.tag-chip--urgent { background: var(--chalk-pink); color: var(--board-bg-dark); }
+.tag-chip--info { background: var(--chalk-blue); color: var(--board-bg-dark); }
+.tag-chip--general { background: var(--chalk-green); color: var(--board-bg-dark); }
+
+.announcement-feed { display: flex; flex-direction: column; gap: 14px; }
+.announcement-card {
+  border: 1px dashed var(--rail-line);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  background: var(--board-bg);
+}
+.announcement-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 6px; }
+.announcement-card h4 { margin: 0; font-family: var(--font-display); font-size: 1.1rem; color: var(--chalk-white); }
+.announcement-card p { margin: 0 0 10px; font-size: 0.86rem; color: var(--chalk-white-dim); line-height: 1.5; }
+.announcement-footer { font-family: var(--font-mono); font-size: 0.72rem; color: var(--chalk-white-dim); opacity: 0.85; }
+
+.timetable-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+.timetable-day {
+  border: 1px solid var(--rail-line);
+  border-radius: var(--radius);
+  padding: 12px;
+  background: var(--board-bg);
+}
+.timetable-day h4 { margin: 0 0 8px; font-family: var(--font-display); color: var(--chalk-yellow); font-size: 0.95rem; }
+.timetable-slot { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; border-top: 1px dashed var(--rail-line); }
+.timetable-slot:first-of-type { border-top: none; }
+.timetable-slot-time { font-family: var(--font-mono); font-size: 0.7rem; color: var(--chalk-white-dim); }
+.timetable-slot-subject { font-size: 0.85rem; color: var(--chalk-white); }

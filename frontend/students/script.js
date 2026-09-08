@@ -87,6 +87,7 @@ function renderTable() {
         <td>
           ${canManage ? `
             <div class="row-actions">
+              <button class="icon-btn" data-invite="${s.id}">Login</button>
               <button class="icon-btn" data-edit="${s.id}">Edit</button>
               <button class="icon-btn danger" data-delete="${s.id}">Delete</button>
             </div>
@@ -103,6 +104,9 @@ function renderTable() {
   });
   tbody.querySelectorAll('[data-delete]').forEach(btn => {
     btn.addEventListener('click', () => deleteStudent(btn.dataset.delete));
+  });
+  tbody.querySelectorAll('[data-invite]').forEach(btn => {
+    btn.addEventListener('click', () => openInviteModal(btn.dataset.invite));
   });
 }
 
@@ -181,6 +185,111 @@ async function deleteStudent(id) {
     alert(`Couldn't delete: ${err.message}`);
   }
 }
+
+/* ---------- Invite code (student login) ---------- */
+const inviteOverlay = document.getElementById('inviteModalOverlay');
+let inviteStudentId = null;
+let currentInvite = null; // { code, expiresAt } for whichever code is currently shown
+
+function registerUrl() {
+  return new URL('../register/index.html', window.location.href).href;
+}
+
+function inviteMessage(student) {
+  const name = student ? student.name : 'there';
+  const expiry = currentInvite
+    ? ` (valid until ${new Date(currentInvite.expiresAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })})`
+    : '';
+  return `Hi ${name}, here's your student login code for the school portal: ${currentInvite?.code}${expiry}. ` +
+    `Register at ${registerUrl()} using this code to set your own username and password.`;
+}
+
+function updateShareButtons() {
+  const student = studentsState.find(s => s.id === inviteStudentId);
+  const emailBtn = document.getElementById('emailInviteBtn');
+  const hasCode = !!currentInvite;
+
+  document.getElementById('copyInviteBtn').disabled = !hasCode;
+  document.getElementById('copyMessageBtn').disabled = !hasCode;
+
+  const looksLikeEmail = student?.guardianContact && /\S+@\S+\.\S+/.test(student.guardianContact);
+  if (hasCode && looksLikeEmail) {
+    emailBtn.style.display = '';
+    emailBtn.href = `mailto:${student.guardianContact}` +
+      `?subject=${encodeURIComponent('Your student portal login code')}` +
+      `&body=${encodeURIComponent(inviteMessage(student))}`;
+  } else {
+    emailBtn.style.display = 'none';
+  }
+}
+
+async function openInviteModal(studentId) {
+  inviteStudentId = studentId;
+  currentInvite = null;
+  const student = studentsState.find(s => s.id === studentId);
+  document.getElementById('inviteModalSub').textContent = student ? student.name : '';
+  document.getElementById('inviteCodeBox').textContent = 'Checking for an existing code…';
+  document.getElementById('inviteMeta').textContent = '';
+  document.getElementById('generateInviteBtn').disabled = false;
+  updateShareButtons();
+  inviteOverlay.classList.add('is-open');
+
+  try {
+    const existing = await SmsAuth.apiFetch(`/invite-codes?studentId=${studentId}`);
+    const outstanding = existing.find(c => !c.used && new Date(c.expiresAt) > new Date());
+    if (outstanding) {
+      showInviteCode(outstanding);
+    } else {
+      document.getElementById('inviteCodeBox').textContent = 'No active code yet.';
+      document.getElementById('inviteMeta').textContent = '';
+    }
+  } catch (err) {
+    document.getElementById('inviteCodeBox').textContent = 'No active code yet.';
+  }
+}
+
+function showInviteCode(invite) {
+  currentInvite = invite;
+  document.getElementById('inviteCodeBox').textContent = invite.code;
+  document.getElementById('inviteMeta').textContent =
+    `Expires ${new Date(invite.expiresAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} · single use`;
+  updateShareButtons();
+}
+
+function closeInviteModal() {
+  inviteOverlay.classList.remove('is-open');
+  inviteStudentId = null;
+  currentInvite = null;
+}
+
+document.getElementById('generateInviteBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('generateInviteBtn');
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+  try {
+    const invite = await SmsAuth.apiFetch('/invite-codes', { method: 'POST', body: { studentId: inviteStudentId } });
+    showInviteCode(invite);
+  } catch (err) {
+    alert(`Couldn't generate a code: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generate New Code';
+  }
+});
+
+document.getElementById('copyInviteBtn').addEventListener('click', () => {
+  if (!currentInvite) return;
+  navigator.clipboard?.writeText(currentInvite.code);
+});
+
+document.getElementById('copyMessageBtn').addEventListener('click', () => {
+  if (!currentInvite) return;
+  const student = studentsState.find(s => s.id === inviteStudentId);
+  navigator.clipboard?.writeText(inviteMessage(student));
+});
+
+document.getElementById('closeInviteModalBtn').addEventListener('click', closeInviteModal);
+inviteOverlay.addEventListener('click', (e) => { if (e.target === inviteOverlay) closeInviteModal(); });
 
 /* ---------- Events ---------- */
 document.getElementById('newStudentBtn').addEventListener('click', () => openModal());

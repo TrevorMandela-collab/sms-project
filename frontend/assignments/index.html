@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Assignments — School Management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Courier+Prime:wght@400;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/theme.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-shell">
+  <div id="sidebarSlot"></div>
+  <main class="app-main">
+<div class="board">
+
+  <header class="board-header">
+    <div>
+      <h1 class="chalk-title">Assignments</h1>
+      <p class="chalk-sub">Homework and coursework, with submission tracking and grading</p>
+    </div>
+    <div class="header-right" style="display:flex; align-items:center; gap:16px;">
+      <div id="userBadgeSlot"></div>
+      <button class="chalk-btn" id="newAssignmentBtn" data-requires-role="admin,teacher">＋ Add Assignment</button>
+    </div>
+  </header>
+
+  <section class="stat-strip">
+    <div class="stat-card">
+      <span class="stat-value" id="statTotal">0</span>
+      <span class="stat-label">Total Assignments</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value" id="statUpcoming">0</span>
+      <span class="stat-label">Upcoming</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value" id="statOverdue">0</span>
+      <span class="stat-label">Overdue</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>All Assignments</h2>
+      <div class="filter-row">
+        <input type="search" id="searchInput" placeholder="Search by title...">
+        <select id="classFilter">
+          <option value="all">All classes</option>
+        </select>
+      </div>
+    </div>
+
+    <table class="ledger-table">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Class</th>
+          <th>Subject</th>
+          <th>Due Date</th>
+          <th>Submissions</th>
+          <th data-requires-role="admin,teacher"></th>
+        </tr>
+      </thead>
+      <tbody id="assignmentsTableBody"></tbody>
+    </table>
+
+    <div class="pagination" id="pagination"></div>
+  </section>
+
+</div>
+  </main>
+</div>
+
+<!-- Add / Edit Assignment modal -->
+<div class="modal-overlay" id="assignmentModalOverlay">
+  <div class="modal-box">
+    <h3 id="modalTitle">Add Assignment</h3>
+    <form id="assignmentForm">
+      <input type="hidden" id="assignmentId">
+      <div class="form-field">
+        <label for="asgTitle">Title</label>
+        <input type="text" id="asgTitle" required placeholder="e.g. Chapter 4 worksheet">
+      </div>
+      <div class="form-field">
+        <label for="asgDescription">Description</label>
+        <textarea id="asgDescription" rows="3" placeholder="Optional instructions or notes"></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label for="asgClass">Class</label>
+          <select id="asgClass" required>
+            <option value="">— Select —</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label for="asgSubject">Subject</label>
+          <select id="asgSubject">
+            <option value="">— None —</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label for="asgDueDate">Due Date</label>
+          <input type="date" id="asgDueDate" required>
+        </div>
+        <div class="form-field">
+          <label for="asgMaxScore">Max Score</label>
+          <input type="number" id="asgMaxScore" min="1" value="100">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="chalk-btn chalk-btn--outline" id="cancelModalBtn">Cancel</button>
+        <button type="submit" class="chalk-btn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Submissions tracker modal -->
+<div class="modal-overlay" id="submissionsModalOverlay">
+  <div class="modal-box modal-box--wide">
+    <h3 id="submissionsModalTitle">Track Submissions</h3>
+    <p class="chalk-sub" id="submissionsModalSub" style="margin-top:-8px;"></p>
+    <div class="submissions-list" id="submissionsList"></div>
+    <div class="modal-actions">
+      <button type="button" class="chalk-btn chalk-btn--outline" id="closeSubmissionsBtn">Close</button>
+      <button type="button" class="chalk-btn" id="saveSubmissionsBtn">Save All</button>
+    </div>
+  </div>
+</div>
+
+<script src="../shared/auth-client.js"></script>
+<script src="../shared/auth-guard.js"></script>
+<script src="../shared/sidebar.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

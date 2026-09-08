@@ -3,7 +3,7 @@ const createCrudRouter = require('../utils/crudRouterFactory');
 module.exports = createCrudRouter('announcements', {
   permissions: {
     create: ['admin', 'teacher'],
-    read: ['admin', 'teacher', 'parent'],
+    read: ['admin', 'teacher', 'parent', 'student'],
     update: ['admin', 'teacher'],
     delete: ['admin', 'teacher'],
   },
