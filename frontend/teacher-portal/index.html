@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Classes — School Management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Courier+Prime:wght@400;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/theme.css">
+<link rel="stylesheet" href="../shared/portal.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-shell">
+  <div id="sidebarSlot"></div>
+  <main class="app-main">
+<div class="board">
+
+  <header class="board-header">
+    <div>
+      <h1 class="chalk-title">My Classes</h1>
+      <p class="chalk-sub">The classes and timetable you're assigned to</p>
+    </div>
+    <div class="header-right" style="display:flex; align-items:center; gap:16px;">
+      <div id="userBadgeSlot"></div>
+    </div>
+  </header>
+
+  <div class="portal-tabs">
+    <button class="portal-tab is-active" data-tab="classes">My Classes</button>
+    <button class="portal-tab" data-tab="timetable">My Timetable</button>
+  </div>
+
+  <section class="panel" id="classesTab">
+    <div id="classesContainer">
+      <div class="loading-state">Loading your classes…</div>
+    </div>
+  </section>
+
+  <section class="panel" id="timetableTab" style="display:none;">
+    <div id="timetableContainer">
+      <div class="loading-state">Loading your timetable…</div>
+    </div>
+  </section>
+
+</div>
+  </main>
+</div>
+
+<script src="../shared/auth-client.js"></script>
+<script src="../shared/auth-guard.js"></script>
+<script src="../shared/sidebar.js"></script>
+<script src="../shared/portal-views.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

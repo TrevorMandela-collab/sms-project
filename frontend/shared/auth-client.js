@@ -7,7 +7,7 @@
    and surfaces API errors consistently.
 ========================================================= */
 
-const SMS_API_BASE = "https://sms-project-production.up.railway.app/api";
+const SMS_API_BASE = "https://sms-project-c8e2.onrender.com/api";
 const TOKEN_KEY = "sms_token";
 const USER_KEY = "sms_user";
 

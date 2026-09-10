@@ -17,6 +17,7 @@
     { key: 'teachers', label: 'Teachers', icon: '🍎', href: '../teachers/index.html', roles: ['admin', 'teacher'] },
     { key: 'manage-logins', label: 'Manage Logins', icon: '🔑', href: '../manage-logins/index.html', roles: ['admin'] },
     { key: 'chats', label: 'Chats', icon: '💬', href: '../chats/index.html', roles: ['admin', 'teacher', 'parent', 'student'] },
+    { key: 'teacher-portal', label: 'My Classes', icon: '🎒', href: '../teacher-portal/index.html', roles: ['teacher'] },
     { key: 'classes-subjects', label: 'Classes & Subjects', icon: '📚', href: '../classes-subjects/index.html', roles: ['admin', 'teacher'] },
     { key: 'assignments', label: 'Assignments', icon: '📋', href: '../assignments/index.html', roles: ['admin', 'teacher'] },
     { key: 'attendance', label: 'Attendance', icon: '📅', href: '../attendance/index.html', roles: ['admin', 'teacher'] },

@@ -1,9 +1,10 @@
 /* =========================================================
    Classes & Subjects module — School Management System
-   Two linked collections in one page: classes reference a
-   homeroom teacherId and an array of subjectIds; subjects
-   are simple name+code records. Requires auth-client.js +
-   auth-guard.js loaded first.
+   Two linked collections in one page: classes reference an
+   array of teacherIds (any number of teachers can be assigned
+   to a class) and an array of subjectIds; subjects are simple
+   name+code records. Requires auth-client.js + auth-guard.js
+   loaded first.
 ========================================================= */
 
 const PAGE_SIZE = 8;
@@ -78,6 +79,11 @@ function teacherName(id) {
   return t ? t.name : '—';
 }
 
+function teacherNames(ids = []) {
+  const names = ids.map(teacherName).filter(n => n && n !== '—');
+  return names.length ? names.join(', ') : '—';
+}
+
 function subjectName(id) {
   const s = subjectsState.find(s => s.id === id);
   return s ? s.name : null;
@@ -132,7 +138,7 @@ function renderClassesTable() {
     tbody.innerHTML = pageItems.map(c => `
       <tr>
         <td>${c.name}</td>
-        <td>${teacherName(c.teacherId)}</td>
+        <td>${teacherNames(c.teacherIds)}</td>
         <td>${(c.subjectIds || []).map(subjectName).filter(Boolean).map(s => `<span class="subject-chip">${s}</span>`).join('') || '—'}</td>
         <td>
           ${canManage ? `
@@ -237,11 +243,22 @@ function renderPagination(elementId, totalPages, currentPage, onPage) {
 const classOverlay = document.getElementById('classModalOverlay');
 const classForm = document.getElementById('classForm');
 
-function populateTeacherSelect(selectedId) {
-  const select = document.getElementById('clsTeacher');
-  select.innerHTML = `<option value="">— None —</option>` +
-    teachersState.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
-  select.value = selectedId || '';
+function renderTeacherChecklist(selectedIds = []) {
+  const container = document.getElementById('clsTeacherChecklist');
+  if (!teachersState.length) {
+    container.innerHTML = `<p class="chalk-sub" style="margin:0;">No teachers yet — add one on the Teachers page first.</p>`;
+    return;
+  }
+  container.innerHTML = teachersState.map(t => `
+    <label class="checkbox-item">
+      <input type="checkbox" value="${t.id}" ${selectedIds.includes(t.id) ? 'checked' : ''}>
+      <span>${t.name}</span>
+    </label>
+  `).join('');
+}
+
+function getCheckedTeacherIds() {
+  return [...document.querySelectorAll('#clsTeacherChecklist input[type="checkbox"]:checked')].map(cb => cb.value);
 }
 
 function renderSubjectChecklist(selectedIds = []) {
@@ -267,7 +284,7 @@ function openClassModal(id = null) {
   document.getElementById('classModalTitle').textContent = record ? 'Edit Class' : 'Add Class';
   document.getElementById('classId').value = record?.id || '';
   document.getElementById('clsName').value = record?.name || '';
-  populateTeacherSelect(record?.teacherId);
+  renderTeacherChecklist(record?.teacherIds || []);
   renderSubjectChecklist(record?.subjectIds || []);
   classOverlay.classList.add('is-open');
 }
@@ -282,7 +299,7 @@ classForm.addEventListener('submit', async (e) => {
   const id = document.getElementById('classId').value;
   const payload = {
     name: document.getElementById('clsName').value.trim(),
-    teacherId: document.getElementById('clsTeacher').value || null,
+    teacherIds: getCheckedTeacherIds(),
     subjectIds: getCheckedSubjectIds(),
   };
 
