@@ -113,6 +113,7 @@
           <th>Role</th>
           <th>Linked To</th>
           <th>Created</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody id="accountsTableBody"></tbody>
@@ -121,6 +122,43 @@
 
 </div>
   </main>
+</div>
+
+<!-- Edit Account modal -->
+<div class="modal-overlay" id="editAccountOverlay">
+  <div class="modal-box">
+    <h3>Edit Account</h3>
+    <form id="editAccountForm">
+      <input type="hidden" id="editAccountId">
+      <div class="form-field">
+        <label for="editAccountName">Full Name</label>
+        <input type="text" id="editAccountName" required>
+      </div>
+      <div class="form-field">
+        <label for="editAccountEmail">Email</label>
+        <input type="email" id="editAccountEmail" required>
+      </div>
+      <div class="form-field">
+        <label for="editAccountPassword">New Password (leave blank to keep current)</label>
+        <input type="password" id="editAccountPassword" minlength="6">
+      </div>
+      <div class="form-field" id="editTeacherLinkField" style="display:none;">
+        <label for="editTeacherLinkSelect">Link to Teacher Record</label>
+        <select id="editTeacherLinkSelect">
+          <option value="">— not linked —</option>
+        </select>
+      </div>
+      <div class="form-field" id="editChildrenField" style="display:none;">
+        <label>Children</label>
+        <div class="child-checkbox-list" id="editChildCheckboxList"></div>
+      </div>
+      <p class="form-message" id="editAccountMessage"></p>
+      <div class="modal-actions">
+        <button type="button" class="chalk-btn chalk-btn--outline" id="cancelEditAccountBtn">Cancel</button>
+        <button type="submit" class="chalk-btn">Save Changes</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <script src="../shared/auth-client.js"></script>

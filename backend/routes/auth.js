@@ -193,4 +193,55 @@ router.patch('/users/:id/role', requireAuth, requireRole('admin'), safe(async (r
   res.json(safe);
 }));
 
+/**
+ * PATCH /api/auth/users/:id  (admin only)
+ * Edit an account's name/email/linked-record fields, and optionally
+ * reset its password. Does NOT change role — use the /role endpoint
+ * for that, since a role change also has knock-on effects on which
+ * linked-record field applies.
+ * body: { name?, email?, password?, childIds?, teacherId?, studentId? }
+ */
+router.patch('/users/:id', requireAuth, requireRole('admin'), safe(async (req, res) => {
+  const { name, email, password, childIds, teacherId, studentId } = req.body;
+  const existing = await db.findById(COLLECTION, req.params.id);
+  if (!existing) return res.status(404).json({ error: 'User not found.' });
+
+  if (email && email.toLowerCase() !== existing.email.toLowerCase()) {
+    const users = await db.readAll(COLLECTION);
+    if (users.some(u => u.id !== existing.id && u.email.toLowerCase() === email.toLowerCase())) {
+      return res.status(409).json({ error: 'Another account already uses that email.' });
+    }
+  }
+
+  const updates = {};
+  if (name !== undefined) updates.name = name.trim();
+  if (email !== undefined) updates.email = email.trim();
+  if (existing.role === 'parent' && childIds !== undefined) updates.childIds = childIds;
+  if (existing.role === 'teacher' && teacherId !== undefined) updates.teacherId = teacherId || null;
+  if (existing.role === 'student' && studentId !== undefined) updates.studentId = studentId || null;
+  if (password) {
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+    }
+    updates.passwordHash = await bcrypt.hash(password, 10);
+  }
+
+  const updated = await db.update(COLLECTION, req.params.id, updates);
+  const { passwordHash: _, ...safeUser } = updated;
+  res.json(safeUser);
+}));
+
+/**
+ * DELETE /api/auth/users/:id  (admin only)
+ * Admins can't delete their own account (avoids accidental lockout).
+ */
+router.delete('/users/:id', requireAuth, requireRole('admin'), safe(async (req, res) => {
+  if (req.params.id === req.user.id) {
+    return res.status(400).json({ error: "You can't delete your own account while logged in as it." });
+  }
+  const removed = await db.remove(COLLECTION, req.params.id);
+  if (!removed) return res.status(404).json({ error: 'User not found.' });
+  res.status(204).end();
+}));
+
 module.exports = router;

@@ -148,8 +148,21 @@ function renderAccountsTable() {
       <td><span class="badge badge--blue">${a.role}</span></td>
       <td><span class="linked-tag">${linkedToLabel(a)}</span></td>
       <td>${a.createdAt ? new Date(a.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+      <td>
+        <div class="row-actions">
+          <button class="icon-btn" data-edit-account="${a.id}">Edit</button>
+          <button class="icon-btn danger" data-delete-account="${a.id}">Delete</button>
+        </div>
+      </td>
     </tr>
   `).join('');
+
+  tbody.querySelectorAll('[data-edit-account]').forEach(btn => {
+    btn.addEventListener('click', () => openEditAccountModal(btn.dataset.editAccount));
+  });
+  tbody.querySelectorAll('[data-delete-account]').forEach(btn => {
+    btn.addEventListener('click', () => deleteAccount(btn.dataset.deleteAccount));
+  });
 }
 
 /* ---------- Form helpers ---------- */
@@ -242,6 +255,117 @@ document.getElementById('accountRoleFilter').addEventListener('change', (e) => {
   accountRoleFilterValue = e.target.value;
   renderAccountsTable();
 });
+
+/* ---------- Edit account modal ---------- */
+const editOverlay = document.getElementById('editAccountOverlay');
+const editForm = document.getElementById('editAccountForm');
+let editingAccount = null;
+
+function renderEditChildCheckboxList(preCheckedIds) {
+  const container = document.getElementById('editChildCheckboxList');
+  container.innerHTML = studentsState
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(s => `
+      <label class="child-checkbox-item">
+        <input type="checkbox" value="${s.id}" ${preCheckedIds.has(s.id) ? 'checked' : ''}>
+        <span class="child-name">${s.name}</span>
+        <span class="child-class">${s.class || '—'}</span>
+      </label>
+    `).join('') || `<div class="empty-state">No students found.</div>`;
+}
+
+function populateEditTeacherSelect(selectedId) {
+  const select = document.getElementById('editTeacherLinkSelect');
+  select.innerHTML = `<option value="">— not linked —</option>` +
+    teachersState
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(t => `<option value="${t.id}">${t.name}</option>`)
+      .join('');
+  select.value = teachersState.some(t => t.id === selectedId) ? selectedId : '';
+}
+
+function openEditAccountModal(id) {
+  editingAccount = accountsState.find(a => a.id === id);
+  if (!editingAccount) return;
+
+  document.getElementById('editAccountId').value = editingAccount.id;
+  document.getElementById('editAccountName').value = editingAccount.name;
+  document.getElementById('editAccountEmail').value = editingAccount.email;
+  document.getElementById('editAccountPassword').value = '';
+  setFormMessage('editAccountMessage', '', null);
+
+  const teacherField = document.getElementById('editTeacherLinkField');
+  const childrenField = document.getElementById('editChildrenField');
+  teacherField.style.display = editingAccount.role === 'teacher' ? '' : 'none';
+  childrenField.style.display = editingAccount.role === 'parent' ? '' : 'none';
+
+  if (editingAccount.role === 'teacher') {
+    populateEditTeacherSelect(editingAccount.teacherId);
+  }
+  if (editingAccount.role === 'parent') {
+    renderEditChildCheckboxList(new Set(editingAccount.childIds || []));
+  }
+
+  editOverlay.classList.add('is-open');
+}
+
+function closeEditAccountModal() {
+  editOverlay.classList.remove('is-open');
+  editingAccount = null;
+}
+
+document.getElementById('cancelEditAccountBtn').addEventListener('click', closeEditAccountModal);
+editOverlay.addEventListener('click', (e) => { if (e.target === editOverlay) closeEditAccountModal(); });
+
+editForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!editingAccount) return;
+  setFormMessage('editAccountMessage', '', null);
+
+  const payload = {
+    name: document.getElementById('editAccountName').value.trim(),
+    email: document.getElementById('editAccountEmail').value.trim(),
+  };
+  const password = document.getElementById('editAccountPassword').value;
+  if (password) payload.password = password;
+  if (editingAccount.role === 'teacher') {
+    payload.teacherId = document.getElementById('editTeacherLinkSelect').value || null;
+  }
+  if (editingAccount.role === 'parent') {
+    payload.childIds = Array.from(
+      document.querySelectorAll('#editChildCheckboxList input[type="checkbox"]:checked')
+    ).map(el => el.value);
+  }
+
+  const submitBtn = editForm.querySelector('button[type="submit"]');
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Saving…';
+
+  try {
+    await SmsAuth.apiFetch(`/auth/users/${editingAccount.id}`, { method: 'PATCH', body: payload });
+    closeEditAccountModal();
+    await loadAccounts();
+  } catch (err) {
+    setFormMessage('editAccountMessage', err.message, 'error');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Save Changes';
+  }
+});
+
+async function deleteAccount(id) {
+  const account = accountsState.find(a => a.id === id);
+  if (!account) return;
+  if (!confirm(`Delete the login for ${account.name} (${account.email})? This cannot be undone.`)) return;
+  try {
+    await SmsAuth.apiFetch(`/auth/users/${id}`, { method: 'DELETE' });
+    await loadAccounts();
+  } catch (err) {
+    alert(`Couldn't delete: ${err.message}`);
+  }
+}
 
 /* ---------- Init ---------- */
 loadAll();
