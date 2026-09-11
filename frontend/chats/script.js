@@ -10,11 +10,16 @@ const isAdmin = user && user.role === 'admin';
 
 let chatsState = [];
 let usersState = [];
+let messagesState = [];
 let activeChatId = null;
 let pollTimer = null;
 let memberSearchTerm = '';
 let settingsMemberSearchTerm = '';
 let settingsCheckedIds = new Set();
+let replyingToId = null;
+let editingMessageId = null;
+
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 if (isAdmin) {
   document.getElementById('createChatBtn').style.display = '';
@@ -62,6 +67,7 @@ async function selectChat(chatId) {
     document.getElementById('openSettingsBtn').addEventListener('click', () => openSettingsOverlay(chat));
   }
   document.getElementById('chatInputForm').style.display = 'flex';
+  clearContextBar();
 
   await loadMessages();
   restartPolling();
@@ -79,6 +85,7 @@ async function loadMessages() {
 }
 
 function renderMessages(messages) {
+  messagesState = messages;
   const container = document.getElementById('chatMessages');
   const wasAtBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 40;
 
@@ -87,14 +94,74 @@ function renderMessages(messages) {
     return;
   }
 
-  container.innerHTML = messages.map(m => `
-    <div class="chat-message ${m.senderId === user.id ? 'is-own' : ''}">
-      <div class="chat-message-meta">${m.senderName} · ${new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-      <div class="chat-message-bubble">${escapeHtml(m.text)}</div>
-    </div>
-  `).join('');
+  const byId = new Map(messages.map(m => [m.id, m]));
+
+  container.innerHTML = messages.map(m => {
+    const isOwn = m.senderId === user.id;
+    const canModify = isOwn || isAdmin;
+
+    if (m.deleted) {
+      return `
+        <div class="chat-message ${isOwn ? 'is-own' : ''} is-deleted" data-id="${m.id}">
+          <div class="chat-message-meta">${m.senderName} · ${formatTime(m.createdAt)}</div>
+          <div class="chat-message-bubble chat-message-bubble--deleted"><em>Message deleted</em></div>
+        </div>
+      `;
+    }
+
+    const replyTarget = m.replyToId ? byId.get(m.replyToId) : null;
+    const replyHtml = replyTarget ? `
+      <div class="chat-reply-quote">
+        <span class="chat-reply-quote-name">${replyTarget.deleted ? 'Deleted message' : replyTarget.senderName}</span>
+        <span class="chat-reply-quote-text">${replyTarget.deleted ? '' : escapeHtml(truncate(replyTarget.text, 60))}</span>
+      </div>
+    ` : (m.replyToId ? `<div class="chat-reply-quote"><span class="chat-reply-quote-text">Original message not found</span></div>` : '');
+
+    const reactions = m.reactions || {};
+    const reactionEntries = Object.entries(reactions).filter(([, ids]) => ids && ids.length);
+    const reactionsHtml = reactionEntries.length ? `
+      <div class="chat-reactions">
+        ${reactionEntries.map(([emoji, ids]) => `
+          <button type="button" class="chat-reaction-pill ${ids.includes(user.id) ? 'is-mine' : ''}" data-react="${emoji}" data-msg="${m.id}">
+            ${emoji} ${ids.length}
+          </button>
+        `).join('')}
+      </div>
+    ` : '';
+
+    const actionsHtml = `
+      <div class="chat-message-actions">
+        <button type="button" class="chat-action-btn" data-action="react-toggle" data-msg="${m.id}" title="React">😊</button>
+        <button type="button" class="chat-action-btn" data-action="reply" data-msg="${m.id}" title="Reply">↩</button>
+        ${canModify && isOwn ? `<button type="button" class="chat-action-btn" data-action="edit" data-msg="${m.id}" title="Edit">✎</button>` : ''}
+        ${canModify ? `<button type="button" class="chat-action-btn chat-action-btn--danger" data-action="delete" data-msg="${m.id}" title="Delete">🗑</button>` : ''}
+      </div>
+      <div class="chat-reaction-picker" id="picker-${m.id}" style="display:none;">
+        ${QUICK_REACTIONS.map(e => `<button type="button" class="chat-reaction-pick" data-react="${e}" data-msg="${m.id}">${e}</button>`).join('')}
+      </div>
+    `;
+
+    return `
+      <div class="chat-message ${isOwn ? 'is-own' : ''}" data-id="${m.id}">
+        ${replyHtml}
+        <div class="chat-message-meta">${m.senderName} · ${formatTime(m.createdAt)}${m.edited ? ' · <span class="chat-edited-tag">edited</span>' : ''}</div>
+        <div class="chat-message-bubble">${escapeHtml(m.text)}</div>
+        ${reactionsHtml}
+        ${actionsHtml}
+      </div>
+    `;
+  }).join('');
 
   if (wasAtBottom) container.scrollTop = container.scrollHeight;
+}
+
+function formatTime(iso) {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function truncate(str, len) {
+  if (!str) return '';
+  return str.length > len ? str.slice(0, len) + '…' : str;
 }
 
 function escapeHtml(str) {
@@ -102,6 +169,89 @@ function escapeHtml(str) {
   div.textContent = str;
   return div.innerHTML;
 }
+
+/* ---------- Reply / Edit context bar ---------- */
+function setReplyingTo(messageId) {
+  editingMessageId = null;
+  replyingToId = messageId;
+  const target = messagesState.find(m => m.id === messageId);
+  const bar = document.getElementById('chatContextBar');
+  document.getElementById('chatContextLabel').textContent = `Replying to ${target ? target.senderName : 'message'}`;
+  bar.classList.remove('is-editing');
+  bar.style.display = 'flex';
+  document.getElementById('chatInput').value = '';
+  document.getElementById('chatInput').focus();
+  document.getElementById('chatSendBtn').textContent = 'Send';
+}
+
+function setEditingMessage(messageId) {
+  replyingToId = null;
+  editingMessageId = messageId;
+  const target = messagesState.find(m => m.id === messageId);
+  if (!target) return;
+  const bar = document.getElementById('chatContextBar');
+  document.getElementById('chatContextLabel').textContent = 'Editing message';
+  bar.classList.add('is-editing');
+  bar.style.display = 'flex';
+  document.getElementById('chatInput').value = target.text;
+  document.getElementById('chatInput').focus();
+  document.getElementById('chatSendBtn').textContent = 'Save';
+}
+
+function clearContextBar() {
+  replyingToId = null;
+  editingMessageId = null;
+  document.getElementById('chatContextBar').style.display = 'none';
+  document.getElementById('chatContextBar').classList.remove('is-editing');
+  document.getElementById('chatInput').value = '';
+  document.getElementById('chatSendBtn').textContent = 'Send';
+}
+
+document.getElementById('chatContextCancelBtn').addEventListener('click', clearContextBar);
+
+/* ---------- Message action clicks (reply, edit, delete, react) ---------- */
+document.getElementById('chatMessages').addEventListener('click', async (e) => {
+  const actionBtn = e.target.closest('[data-action]');
+  const reactBtn = e.target.closest('[data-react]');
+
+  if (actionBtn) {
+    const { action, msg } = actionBtn.dataset;
+    if (action === 'reply') {
+      setReplyingTo(msg);
+    } else if (action === 'edit') {
+      setEditingMessage(msg);
+    } else if (action === 'delete') {
+      if (!confirm('Delete this message? This cannot be undone.')) return;
+      try {
+        await SmsAuth.apiFetch(`/chats/${activeChatId}/messages/${msg}`, { method: 'DELETE' });
+        await loadMessages();
+      } catch (err) {
+        alert(`Couldn't delete message: ${err.message}`);
+      }
+    } else if (action === 'react-toggle') {
+      const picker = document.getElementById(`picker-${msg}`);
+      document.querySelectorAll('.chat-reaction-picker').forEach(p => {
+        if (p !== picker) p.style.display = 'none';
+      });
+      picker.style.display = picker.style.display === 'none' ? 'flex' : 'none';
+    }
+    return;
+  }
+
+  if (reactBtn) {
+    const { react, msg } = reactBtn.dataset;
+    try {
+      await SmsAuth.apiFetch(`/chats/${activeChatId}/messages/${msg}/react`, {
+        method: 'POST',
+        body: { emoji: react },
+      });
+      document.querySelectorAll('.chat-reaction-picker').forEach(p => p.style.display = 'none');
+      await loadMessages();
+    } catch (err) {
+      alert(`Couldn't react: ${err.message}`);
+    }
+  }
+});
 
 function restartPolling() {
   if (pollTimer) clearInterval(pollTimer);
@@ -114,12 +264,23 @@ document.getElementById('chatInputForm').addEventListener('submit', async (e) =>
   const input = document.getElementById('chatInput');
   const text = input.value.trim();
   if (!text || !activeChatId) return;
-  input.value = '';
+
   try {
-    await SmsAuth.apiFetch(`/chats/${activeChatId}/messages`, {
-      method: 'POST',
-      body: { text },
-    });
+    if (editingMessageId) {
+      const idToEdit = editingMessageId;
+      clearContextBar();
+      await SmsAuth.apiFetch(`/chats/${activeChatId}/messages/${idToEdit}`, {
+        method: 'PATCH',
+        body: { text },
+      });
+    } else {
+      const replyToId = replyingToId;
+      clearContextBar();
+      await SmsAuth.apiFetch(`/chats/${activeChatId}/messages`, {
+        method: 'POST',
+        body: { text, replyToId },
+      });
+    }
     await loadMessages();
   } catch (err) {
     alert(`Couldn't send message: ${err.message}`);
@@ -262,6 +423,27 @@ document.getElementById('settingsMemberSearchInput').addEventListener('input', (
 });
 
 document.getElementById('settingsCancelBtn').addEventListener('click', () => settingsOverlay.style.display = 'none');
+
+document.getElementById('deleteChatBtn').addEventListener('click', async () => {
+  if (!activeChatId) return;
+  const chat = chatsState.find(c => c.id === activeChatId);
+  const confirmed = confirm(`Delete "${chat ? chat.name : 'this chat'}" and all of its messages? This cannot be undone.`);
+  if (!confirmed) return;
+  try {
+    await SmsAuth.apiFetch(`/chats/${activeChatId}`, { method: 'DELETE' });
+    settingsOverlay.style.display = 'none';
+    activeChatId = null;
+    document.getElementById('chatThreadHeader').innerHTML = `<span class="chat-thread-title">Select a chat</span>`;
+    document.getElementById('chatMessages').innerHTML = `<div class="empty-state">Pick a chat from the left, or join one with an invite code.</div>`;
+    document.getElementById('chatInputForm').style.display = 'none';
+    clearContextBar();
+    if (pollTimer) clearInterval(pollTimer);
+    await loadChats();
+  } catch (err) {
+    document.getElementById('settingsMessage').textContent = err.message;
+    document.getElementById('settingsMessage').classList.add('is-error');
+  }
+});
 
 document.getElementById('regenerateCodeBtn').addEventListener('click', async () => {
   if (!activeChatId) return;

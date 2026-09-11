@@ -42,9 +42,13 @@
       <div class="chat-messages" id="chatMessages">
         <div class="empty-state">Pick a chat from the left, or join one with an invite code.</div>
       </div>
+      <div class="chat-context-bar" id="chatContextBar" style="display:none;">
+        <span id="chatContextLabel"></span>
+        <button type="button" id="chatContextCancelBtn" title="Cancel">✕</button>
+      </div>
       <form class="chat-input-row" id="chatInputForm" style="display:none;">
         <input type="text" id="chatInput" placeholder="Message..." autocomplete="off">
-        <button type="submit" class="chalk-btn">Send</button>
+        <button type="submit" class="chalk-btn" id="chatSendBtn">Send</button>
       </form>
     </section>
 
@@ -114,9 +118,12 @@
       <div class="child-checkbox-list" id="settingsMemberCheckboxList"></div>
     </div>
     <p class="form-message" id="settingsMessage"></p>
-    <div class="modal-actions">
-      <button type="button" class="chalk-btn chalk-btn--outline" id="settingsCancelBtn">Close</button>
-      <button type="button" class="chalk-btn" id="settingsSaveBtn">Save Members</button>
+    <div class="modal-actions modal-actions--split">
+      <button type="button" class="chalk-btn chalk-btn--danger" id="deleteChatBtn">Delete Chat</button>
+      <div style="display:flex; gap:10px;">
+        <button type="button" class="chalk-btn chalk-btn--outline" id="settingsCancelBtn">Close</button>
+        <button type="button" class="chalk-btn" id="settingsSaveBtn">Save Members</button>
+      </div>
     </div>
   </div>
 </div>

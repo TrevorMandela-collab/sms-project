@@ -9,7 +9,8 @@ const CHATS = 'chats';
 const MESSAGES = 'chat-messages';
 
 // Each chat (a "server"): { id, name, memberIds, createdBy, createdAt, inviteCode }
-// Each message: { id, chatId, senderId, senderName, senderRole, text, createdAt }
+// Each message: { id, chatId, senderId, senderName, senderRole, text, createdAt,
+//                 replyToId, reactions: { "😂": [userId, ...] }, edited, deleted }
 
 function safe(handler) {
   return (req, res) => {
@@ -140,9 +141,14 @@ router.get('/:chatId/messages', requireAuth, requireMembership, safe(async (req,
  * body: { text }
  */
 router.post('/:chatId/messages', requireAuth, requireMembership, safe(async (req, res) => {
-  const { text } = req.body;
+  const { text, replyToId } = req.body;
   if (!text || !text.trim()) {
     return res.status(400).json({ error: 'Message text is required.' });
+  }
+  let resolvedReplyToId = null;
+  if (replyToId) {
+    const target = await db.findById(MESSAGES, replyToId);
+    if (target && target.chatId === req.params.chatId) resolvedReplyToId = replyToId;
   }
   const message = {
     id: uuidv4(),
@@ -151,10 +157,90 @@ router.post('/:chatId/messages', requireAuth, requireMembership, safe(async (req
     senderName: req.user.name,
     senderRole: req.user.role,
     text: text.trim(),
+    replyToId: resolvedReplyToId,
+    reactions: {},
+    edited: false,
+    deleted: false,
     createdAt: new Date().toISOString(),
   };
   await db.insert(MESSAGES, message);
   res.status(201).json(message);
+}));
+
+/**
+ * PATCH /api/chats/:chatId/messages/:messageId
+ * Edit your own message. body: { text }
+ */
+router.patch('/:chatId/messages/:messageId', requireAuth, requireMembership, safe(async (req, res) => {
+  const { text } = req.body;
+  if (!text || !text.trim()) {
+    return res.status(400).json({ error: 'Message text is required.' });
+  }
+  const message = await db.findById(MESSAGES, req.params.messageId);
+  if (!message || message.chatId !== req.params.chatId) {
+    return res.status(404).json({ error: 'Message not found.' });
+  }
+  if (message.senderId !== req.user.id) {
+    return res.status(403).json({ error: 'You can only edit your own messages.' });
+  }
+  if (message.deleted) {
+    return res.status(400).json({ error: "You can't edit a deleted message." });
+  }
+  const updated = await db.update(MESSAGES, req.params.messageId, {
+    text: text.trim(),
+    edited: true,
+    editedAt: new Date().toISOString(),
+  });
+  res.json(updated);
+}));
+
+/**
+ * DELETE /api/chats/:chatId/messages/:messageId
+ * Delete your own message, or (if admin) anyone's. Soft-delete: keeps the
+ * record — so any replies quoting it still resolve — but clears the text.
+ */
+router.delete('/:chatId/messages/:messageId', requireAuth, requireMembership, safe(async (req, res) => {
+  const message = await db.findById(MESSAGES, req.params.messageId);
+  if (!message || message.chatId !== req.params.chatId) {
+    return res.status(404).json({ error: 'Message not found.' });
+  }
+  if (message.senderId !== req.user.id && req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'You can only delete your own messages.' });
+  }
+  const updated = await db.update(MESSAGES, req.params.messageId, {
+    text: '',
+    deleted: true,
+    deletedAt: new Date().toISOString(),
+    reactions: {},
+  });
+  res.json(updated);
+}));
+
+/**
+ * POST /api/chats/:chatId/messages/:messageId/react
+ * Toggle an emoji reaction from the current user. body: { emoji }
+ */
+router.post('/:chatId/messages/:messageId/react', requireAuth, requireMembership, safe(async (req, res) => {
+  const { emoji } = req.body;
+  if (!emoji) return res.status(400).json({ error: 'An emoji is required.' });
+  const message = await db.findById(MESSAGES, req.params.messageId);
+  if (!message || message.chatId !== req.params.chatId) {
+    return res.status(404).json({ error: 'Message not found.' });
+  }
+  const reactions = { ...(message.reactions || {}) };
+  const current = new Set(reactions[emoji] || []);
+  if (current.has(req.user.id)) {
+    current.delete(req.user.id);
+  } else {
+    current.add(req.user.id);
+  }
+  if (current.size) {
+    reactions[emoji] = [...current];
+  } else {
+    delete reactions[emoji];
+  }
+  const updated = await db.update(MESSAGES, req.params.messageId, { reactions });
+  res.json(updated);
 }));
 
 module.exports = router;
