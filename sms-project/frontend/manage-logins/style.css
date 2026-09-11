@@ -82,3 +82,19 @@
   border: 1px dashed rgba(255, 255, 255, 0.3);
   border-radius: 8px;
 }
+
+.row-actions { display: flex; gap: 8px; }
+
+.icon-btn {
+  background: none;
+  border: 1px solid var(--rail-line-strong);
+  color: var(--chalk-white-dim);
+  font-size: 0.72rem;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--font-body);
+}
+
+.icon-btn:hover { color: var(--chalk-yellow); border-color: var(--chalk-yellow); }
+.icon-btn.danger:hover { color: var(--chalk-pink); border-color: var(--chalk-pink); }

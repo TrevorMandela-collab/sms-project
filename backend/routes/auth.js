@@ -220,14 +220,15 @@ router.patch('/users/:id/role', requireAuth, requireRole('admin'), safe(async (r
 
 /**
  * PATCH /api/auth/users/:id  (admin only)
- * Edit an account's name/email/linked-record fields, and optionally
- * reset its password. Does NOT change role — use the /role endpoint
- * for that, since a role change also has knock-on effects on which
- * linked-record field applies.
- * body: { name?, email?, password?, childIds?, teacherId?, studentId? }
+ * Edit an account's name/email/linked-record fields. Deliberately does
+ * NOT accept a password — an admin should never be able to set or see
+ * another account's password. If someone's locked out, they use their
+ * own "forgot password" flow (not built yet) rather than an admin reset.
+ * Also does not change role — use the /role endpoint for that.
+ * body: { name?, email?, childIds?, teacherId?, studentId? }
  */
 router.patch('/users/:id', requireAuth, requireRole('admin'), safe(async (req, res) => {
-  const { name, email, password, childIds, teacherId, studentId } = req.body;
+  const { name, email, childIds, teacherId, studentId } = req.body;
   const existing = await db.findById(COLLECTION, req.params.id);
   if (!existing) return res.status(404).json({ error: 'User not found.' });
 
@@ -244,12 +245,6 @@ router.patch('/users/:id', requireAuth, requireRole('admin'), safe(async (req, r
   if (existing.role === 'parent' && childIds !== undefined) updates.childIds = childIds;
   if (existing.role === 'teacher' && teacherId !== undefined) updates.teacherId = teacherId || null;
   if (existing.role === 'student' && studentId !== undefined) updates.studentId = studentId || null;
-  if (password) {
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters.' });
-    }
-    updates.passwordHash = await bcrypt.hash(password, 10);
-  }
 
   const updated = await db.update(COLLECTION, req.params.id, updates);
   const { passwordHash: _, ...safeUser } = updated;

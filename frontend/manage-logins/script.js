@@ -315,7 +315,6 @@ function openEditAccountModal(id) {
   document.getElementById('editAccountId').value = editingAccount.id;
   document.getElementById('editAccountName').value = editingAccount.name;
   document.getElementById('editAccountEmail').value = editingAccount.email;
-  document.getElementById('editAccountPassword').value = '';
   setFormMessage('editAccountMessage', '', null);
 
   const teacherField = document.getElementById('editTeacherLinkField');
@@ -350,8 +349,6 @@ editForm.addEventListener('submit', async (e) => {
     name: document.getElementById('editAccountName').value.trim(),
     email: document.getElementById('editAccountEmail').value.trim(),
   };
-  const password = document.getElementById('editAccountPassword').value;
-  if (password) payload.password = password;
   if (editingAccount.role === 'teacher') {
     payload.teacherId = document.getElementById('editTeacherLinkSelect').value || null;
   }
