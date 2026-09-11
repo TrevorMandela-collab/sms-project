@@ -7,7 +7,13 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const router = express.Router();
 const COLLECTION = 'invite-codes';
 
-// Each invite code: { id, code, studentId, createdBy, createdAt, expiresAt, used, usedAt, usedByUserId }
+// Each invite code:
+// { id, code, role, studentId?, teacherId?, childIds?, createdBy, createdAt, expiresAt, used, usedAt, usedByUserId }
+// - role 'student': studentId is required — the invite is tied to one specific student record.
+// - role 'teacher': teacherId is optional — admin can pre-link a teacher record, or leave blank
+//   and link it later from Manage Logins.
+// - role 'parent': childIds is optional — admin can pre-select which children this parent
+//   should see, or leave blank and set it later from Manage Logins.
 
 function generateCode() {
   // 8 chars, split for readability, avoiding ambiguous characters (0/O, 1/I).
@@ -32,17 +38,36 @@ function safe(handler) {
 
 /**
  * POST /api/invite-codes  (admin only)
- * body: { studentId, expiresInDays? }
- * Generates a fresh single-use code tied to a student record.
+ * body: { role, studentId?, teacherId?, childIds?, expiresInDays? }
+ * Generates a fresh single-use invite code for the given role.
  */
 router.post('/', requireAuth, requireRole('admin'), safe(async (req, res) => {
-  const { studentId, expiresInDays } = req.body;
-  if (!studentId) {
-    return res.status(400).json({ error: 'studentId is required.' });
+  const { role, studentId, teacherId, childIds, expiresInDays } = req.body;
+  if (!['student', 'teacher', 'parent'].includes(role)) {
+    return res.status(400).json({ error: "role must be 'student', 'teacher', or 'parent'." });
   }
-  const student = await db.findById('students', studentId);
-  if (!student) {
-    return res.status(404).json({ error: 'Student record not found.' });
+
+  if (role === 'student') {
+    if (!studentId) {
+      return res.status(400).json({ error: 'studentId is required for a student invite.' });
+    }
+    const student = await db.findById('students', studentId);
+    if (!student) {
+      return res.status(404).json({ error: 'Student record not found.' });
+    }
+  }
+  if (role === 'teacher' && teacherId) {
+    const teacher = await db.findById('teachers', teacherId);
+    if (!teacher) {
+      return res.status(404).json({ error: 'Teacher record not found.' });
+    }
+  }
+  if (role === 'parent' && Array.isArray(childIds) && childIds.length) {
+    const students = await db.readAll('students');
+    const validIds = new Set(students.map(s => s.id));
+    if (!childIds.every(id => validIds.has(id))) {
+      return res.status(404).json({ error: 'One or more selected children were not found.' });
+    }
   }
 
   const days = Number.isFinite(expiresInDays) && expiresInDays > 0 ? expiresInDays : 7;
@@ -51,7 +76,10 @@ router.post('/', requireAuth, requireRole('admin'), safe(async (req, res) => {
   const invite = {
     id: uuidv4(),
     code: generateCode(),
-    studentId,
+    role,
+    studentId: role === 'student' ? studentId : null,
+    teacherId: role === 'teacher' ? (teacherId || null) : null,
+    childIds: role === 'parent' ? (childIds || []) : [],
     createdBy: req.user.id,
     createdAt: new Date().toISOString(),
     expiresAt,
@@ -62,15 +90,18 @@ router.post('/', requireAuth, requireRole('admin'), safe(async (req, res) => {
 }));
 
 /**
- * GET /api/invite-codes?studentId=xxx  (admin only)
- * Lists invite codes, optionally filtered to one student — lets the
- * admin UI show any outstanding (unused, unexpired) code before
+ * GET /api/invite-codes?studentId=xxx&role=teacher  (admin only)
+ * Lists invite codes, optionally filtered by studentId and/or role — lets
+ * the admin UI show any outstanding (unused, unexpired) code before
  * generating a new one.
  */
 router.get('/', requireAuth, requireRole('admin'), safe(async (req, res) => {
   let codes = await db.readAll(COLLECTION);
   if (req.query.studentId) {
     codes = codes.filter(c => c.studentId === req.query.studentId);
+  }
+  if (req.query.role) {
+    codes = codes.filter(c => (c.role || 'student') === req.query.role);
   }
   res.json(codes);
 }));

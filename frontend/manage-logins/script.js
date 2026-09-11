@@ -1,8 +1,11 @@
 /* =========================================================
    Manage Logins module — admin-only.
-   Lets an admin create teacher/parent login accounts and
-   review every account that exists. Requires auth-client.js
-   + auth-guard.js loaded first.
+   Teachers and parents now join via a self-service invite
+   code/link (like students already do), generated here by
+   the admin — this page no longer creates their accounts
+   directly. It also manages every existing account: edit,
+   suspend/reinstate, or delete. Requires auth-client.js +
+   auth-guard.js loaded first.
 ========================================================= */
 
 /* ---------- Admin-only guard ---------- */
@@ -45,11 +48,11 @@ async function loadStudents() {
 
 async function loadAccounts() {
   const tbody = document.getElementById('accountsTableBody');
-  tbody.innerHTML = `<tr><td colspan="5"><div class="loading-state">Loading accounts…</div></td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="7"><div class="loading-state">Loading accounts…</div></td></tr>`;
   try {
     accountsState = await SmsAuth.apiFetch('/auth/users');
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="5"><div class="error-state">Couldn't load accounts: ${err.message}</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7"><div class="error-state">Couldn't load accounts: ${err.message}</div></td></tr>`;
     return;
   }
   renderAccountsTable();
@@ -132,12 +135,22 @@ function getFilteredAccounts() {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function statusLabel(account) {
+  if ((account.status || 'active') === 'active') {
+    return `<span class="badge badge--green">Active</span>`;
+  }
+  const until = account.suspendedUntil
+    ? ` until ${new Date(account.suspendedUntil).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`
+    : ' (indefinite)';
+  return `<span class="badge badge--pink" title="Suspended${until}">Suspended${until}</span>`;
+}
+
 function renderAccountsTable() {
   const tbody = document.getElementById('accountsTableBody');
   const filtered = getFilteredAccounts();
 
   if (!filtered.length) {
-    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state">No accounts match your filters.</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state">No accounts match your filters.</div></td></tr>`;
     return;
   }
 
@@ -147,10 +160,14 @@ function renderAccountsTable() {
       <td>${a.email}</td>
       <td><span class="badge badge--blue">${a.role}</span></td>
       <td><span class="linked-tag">${linkedToLabel(a)}</span></td>
+      <td>${statusLabel(a)}</td>
       <td>${a.createdAt ? new Date(a.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
       <td>
         <div class="row-actions">
           <button class="icon-btn" data-edit-account="${a.id}">Edit</button>
+          ${(a.status || 'active') === 'active'
+            ? `<button class="icon-btn" data-suspend-account="${a.id}">Suspend</button>`
+            : `<button class="icon-btn" data-reinstate-account="${a.id}">Reinstate</button>`}
           <button class="icon-btn danger" data-delete-account="${a.id}">Delete</button>
         </div>
       </td>
@@ -163,6 +180,12 @@ function renderAccountsTable() {
   tbody.querySelectorAll('[data-delete-account]').forEach(btn => {
     btn.addEventListener('click', () => deleteAccount(btn.dataset.deleteAccount));
   });
+  tbody.querySelectorAll('[data-suspend-account]').forEach(btn => {
+    btn.addEventListener('click', () => suspendAccount(btn.dataset.suspendAccount));
+  });
+  tbody.querySelectorAll('[data-reinstate-account]').forEach(btn => {
+    btn.addEventListener('click', () => reinstateAccount(btn.dataset.reinstateAccount));
+  });
 }
 
 /* ---------- Form helpers ---------- */
@@ -173,70 +196,69 @@ function setFormMessage(id, text, kind) {
   if (kind) el.classList.add(kind === 'error' ? 'is-error' : 'is-success');
 }
 
-/* ---------- Create teacher login ---------- */
-const teacherForm = document.getElementById('createTeacherForm');
-teacherForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  setFormMessage('teacherFormMessage', '', null);
+/* ---------- Invite a teacher ---------- */
+function registerUrl() {
+  return new URL('../register/index.html', window.location.href).href;
+}
 
-  const payload = {
-    name: document.getElementById('tchLoginName').value.trim(),
-    email: document.getElementById('tchLoginEmail').value.trim(),
-    password: document.getElementById('tchLoginPassword').value,
-    role: 'teacher',
-    teacherId: document.getElementById('teacherLinkSelect').value || null,
-  };
+document.getElementById('generateTeacherInviteBtn').addEventListener('click', async () => {
+  setFormMessage('teacherInviteMessage', '', null);
+  const btn = document.getElementById('generateTeacherInviteBtn');
+  const teacherId = document.getElementById('teacherLinkSelect').value || null;
+  const expiresInDays = Number(document.getElementById('teacherInviteExpiry').value) || 7;
 
-  const submitBtn = teacherForm.querySelector('button[type="submit"]');
-  submitBtn.disabled = true;
-  submitBtn.textContent = 'Creating…';
-
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
   try {
-    await SmsAuth.register(payload);
-    setFormMessage('teacherFormMessage', `Login created for ${payload.name}.`, 'success');
-    teacherForm.reset();
-    populateTeacherSelect();
-    await loadAccounts();
+    const invite = await SmsAuth.apiFetch('/invite-codes', {
+      method: 'POST',
+      body: { role: 'teacher', teacherId, expiresInDays },
+    });
+    document.getElementById('teacherInviteCode').textContent = invite.code;
+    document.getElementById('teacherInviteMeta').textContent =
+      `Expires ${new Date(invite.expiresAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} · single use · share along with: ${registerUrl()}`;
+    document.getElementById('teacherInviteResult').style.display = '';
+    document.getElementById('copyTeacherInviteBtn').onclick = () => {
+      navigator.clipboard?.writeText(
+        `Here's your teacher login invite code for the school portal: ${invite.code}. Register at ${registerUrl()} using this code.`
+      );
+    };
   } catch (err) {
-    setFormMessage('teacherFormMessage', err.message, 'error');
+    setFormMessage('teacherInviteMessage', err.message, 'error');
   } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = 'Create Teacher Login';
+    btn.disabled = false;
+    btn.textContent = 'Generate Invite';
   }
 });
 
-/* ---------- Create parent login ---------- */
-const parentForm = document.getElementById('createParentForm');
-parentForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  setFormMessage('parentFormMessage', '', null);
-
+/* ---------- Invite a parent ---------- */
+document.getElementById('generateParentInviteBtn').addEventListener('click', async () => {
+  setFormMessage('parentInviteMessage', '', null);
+  const btn = document.getElementById('generateParentInviteBtn');
   const childIds = getCheckedChildIds();
-  const payload = {
-    name: document.getElementById('parLoginName').value.trim(),
-    email: document.getElementById('parLoginEmail').value.trim(),
-    password: document.getElementById('parLoginPassword').value,
-    role: 'parent',
-    childIds,
-  };
+  const expiresInDays = Number(document.getElementById('parentInviteExpiry').value) || 7;
 
-  const submitBtn = parentForm.querySelector('button[type="submit"]');
-  submitBtn.disabled = true;
-  submitBtn.textContent = 'Creating…';
-
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
   try {
-    await SmsAuth.register(payload);
-    setFormMessage('parentFormMessage', `Login created for ${payload.name}.`, 'success');
-    parentForm.reset();
-    childSearchTerm = '';
-    document.getElementById('childSearchInput').value = '';
-    renderChildCheckboxList();
-    await loadAccounts();
+    const invite = await SmsAuth.apiFetch('/invite-codes', {
+      method: 'POST',
+      body: { role: 'parent', childIds, expiresInDays },
+    });
+    document.getElementById('parentInviteCode').textContent = invite.code;
+    document.getElementById('parentInviteMeta').textContent =
+      `Expires ${new Date(invite.expiresAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} · single use · share along with: ${registerUrl()}`;
+    document.getElementById('parentInviteResult').style.display = '';
+    document.getElementById('copyParentInviteBtn').onclick = () => {
+      navigator.clipboard?.writeText(
+        `Here's your parent login invite code for the school portal: ${invite.code}. Register at ${registerUrl()} using this code.`
+      );
+    };
   } catch (err) {
-    setFormMessage('parentFormMessage', err.message, 'error');
+    setFormMessage('parentInviteMessage', err.message, 'error');
   } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = 'Create Parent Login';
+    btn.disabled = false;
+    btn.textContent = 'Generate Invite';
   }
 });
 
@@ -364,6 +386,46 @@ async function deleteAccount(id) {
     await loadAccounts();
   } catch (err) {
     alert(`Couldn't delete: ${err.message}`);
+  }
+}
+
+async function suspendAccount(id) {
+  const account = accountsState.find(a => a.id === id);
+  if (!account) return;
+  const input = prompt(
+    `Suspend ${account.name} until when?\n\nLeave blank to suspend indefinitely, or enter a date as YYYY-MM-DD (e.g. 2026-12-31).`,
+    ''
+  );
+  if (input === null) return; // cancelled
+  let suspendedUntil = null;
+  if (input.trim()) {
+    const parsed = new Date(input.trim());
+    if (isNaN(parsed.getTime())) {
+      alert("That date wasn't understood — use the format YYYY-MM-DD, or leave it blank for an indefinite suspension.");
+      return;
+    }
+    suspendedUntil = parsed.toISOString();
+  }
+  try {
+    await SmsAuth.apiFetch(`/auth/users/${id}/status`, {
+      method: 'PATCH',
+      body: { status: 'suspended', suspendedUntil },
+    });
+    await loadAccounts();
+  } catch (err) {
+    alert(`Couldn't suspend: ${err.message}`);
+  }
+}
+
+async function reinstateAccount(id) {
+  try {
+    await SmsAuth.apiFetch(`/auth/users/${id}/status`, {
+      method: 'PATCH',
+      body: { status: 'active' },
+    });
+    await loadAccounts();
+  } catch (err) {
+    alert(`Couldn't reinstate: ${err.message}`);
   }
 }
 

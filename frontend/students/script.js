@@ -267,7 +267,7 @@ document.getElementById('generateInviteBtn').addEventListener('click', async () 
   btn.disabled = true;
   btn.textContent = 'Generating…';
   try {
-    const invite = await SmsAuth.apiFetch('/invite-codes', { method: 'POST', body: { studentId: inviteStudentId } });
+    const invite = await SmsAuth.apiFetch('/invite-codes', { method: 'POST', body: { role: 'student', studentId: inviteStudentId } });
     showInviteCode(invite);
   } catch (err) {
     alert(`Couldn't generate a code: ${err.message}`);
