@@ -244,6 +244,7 @@ document.getElementById('createSubmitBtn').addEventListener('click', async () =>
 const settingsOverlay = document.getElementById('settingsOverlay');
 
 async function openSettingsOverlay(chat) {
+  document.getElementById('settingsChatName').value = chat.name;
   document.getElementById('settingsInviteCode').textContent = chat.inviteCode;
   document.getElementById('settingsMessage').textContent = '';
   settingsMemberSearchTerm = '';
@@ -277,6 +278,7 @@ document.getElementById('regenerateCodeBtn').addEventListener('click', async () 
 
 document.getElementById('settingsSaveBtn').addEventListener('click', async () => {
   if (!activeChatId) return;
+  const name = document.getElementById('settingsChatName').value.trim();
   const memberIds = Array.from(
     document.querySelectorAll('#settingsMemberCheckboxList input[type="checkbox"]:checked')
   ).map(el => el.value);
@@ -285,11 +287,15 @@ document.getElementById('settingsSaveBtn').addEventListener('click', async () =>
   try {
     await SmsAuth.apiFetch(`/chats/${activeChatId}`, {
       method: 'PATCH',
-      body: { memberIds },
+      body: { name, memberIds },
     });
-    msgEl.textContent = 'Members updated.';
+    msgEl.textContent = 'Chat updated.';
     msgEl.classList.add('is-success');
     await loadChats();
+    const updatedChat = chatsState.find(c => c.id === activeChatId);
+    if (updatedChat) {
+      document.querySelector('#chatThreadHeader .chat-thread-title').textContent = updatedChat.name;
+    }
   } catch (err) {
     msgEl.textContent = err.message;
     msgEl.classList.add('is-error');
