@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manage Logins — School Management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Courier+Prime:wght@400;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/theme.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-shell">
+  <div id="sidebarSlot"></div>
+  <main class="app-main">
+<div class="board">
+
+  <header class="board-header">
+    <div>
+      <h1 class="chalk-title">Manage Logins</h1>
+      <p class="chalk-sub">Invite teachers and parents, and manage every account</p>
+    </div>
+    <div class="header-right" style="display:flex; align-items:center; gap:16px;">
+      <div id="userBadgeSlot"></div>
+    </div>
+  </header>
+
+  <section class="login-forms-row">
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Invite a Teacher</h2>
+      </div>
+      <div class="form-field">
+        <label for="teacherLinkSelect">Link to Teacher Record (optional)</label>
+        <select id="teacherLinkSelect">
+          <option value="">— not linked —</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label for="teacherInviteExpiry">Code Expires In (days)</label>
+        <input type="number" id="teacherInviteExpiry" value="7" min="1" max="90">
+      </div>
+      <div class="modal-actions" style="justify-content:flex-start;">
+        <button type="button" class="chalk-btn" id="generateTeacherInviteBtn">Generate Invite</button>
+      </div>
+      <div class="invite-result" id="teacherInviteResult" style="display:none;">
+        <div class="invite-code-box">
+          <span id="teacherInviteCode">—</span>
+          <button type="button" class="chalk-btn chalk-btn--outline" id="copyTeacherInviteBtn">Copy Link</button>
+        </div>
+        <p class="chalk-sub" id="teacherInviteMeta" style="margin:6px 0 0;"></p>
+      </div>
+      <p class="form-message" id="teacherInviteMessage"></p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Invite a Parent</h2>
+      </div>
+      <div class="form-field">
+        <label>Children (optional — can also be linked later)</label>
+        <input type="search" id="childSearchInput" placeholder="Search students...">
+        <div class="child-checkbox-list" id="childCheckboxList">
+          <div class="loading-state">Loading students…</div>
+        </div>
+      </div>
+      <div class="form-field">
+        <label for="parentInviteExpiry">Code Expires In (days)</label>
+        <input type="number" id="parentInviteExpiry" value="7" min="1" max="90">
+      </div>
+      <div class="modal-actions" style="justify-content:flex-start;">
+        <button type="button" class="chalk-btn" id="generateParentInviteBtn">Generate Invite</button>
+      </div>
+      <div class="invite-result" id="parentInviteResult" style="display:none;">
+        <div class="invite-code-box">
+          <span id="parentInviteCode">—</span>
+          <button type="button" class="chalk-btn chalk-btn--outline" id="copyParentInviteBtn">Copy Link</button>
+        </div>
+        <p class="chalk-sub" id="parentInviteMeta" style="margin:6px 0 0;"></p>
+      </div>
+      <p class="form-message" id="parentInviteMessage"></p>
+    </div>
+
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Existing Accounts</h2>
+      <div class="filter-row">
+        <input type="search" id="accountSearchInput" placeholder="Search by name or email...">
+        <select id="accountRoleFilter">
+          <option value="all">All roles</option>
+          <option value="admin">Admin</option>
+          <option value="teacher">Teacher</option>
+          <option value="parent">Parent</option>
+          <option value="student">Student</option>
+        </select>
+      </div>
+    </div>
+
+    <table class="ledger-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Linked To</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="accountsTableBody"></tbody>
+    </table>
+  </section>
+
+</div>
+  </main>
+</div>
+
+<!-- Edit Account modal -->
+<div class="modal-overlay" id="editAccountOverlay">
+  <div class="modal-box">
+    <h3>Edit Account</h3>
+    <form id="editAccountForm">
+      <input type="hidden" id="editAccountId">
+      <div class="form-field">
+        <label for="editAccountName">Full Name</label>
+        <input type="text" id="editAccountName" required>
+      </div>
+      <div class="form-field">
+        <label for="editAccountEmail">Email</label>
+        <input type="email" id="editAccountEmail" required>
+      </div>
+      <div class="form-field">
+        <label for="editAccountPassword">New Password (leave blank to keep current)</label>
+        <input type="password" id="editAccountPassword" minlength="6">
+      </div>
+      <div class="form-field" id="editTeacherLinkField" style="display:none;">
+        <label for="editTeacherLinkSelect">Link to Teacher Record</label>
+        <select id="editTeacherLinkSelect">
+          <option value="">— not linked —</option>
+        </select>
+      </div>
+      <div class="form-field" id="editChildrenField" style="display:none;">
+        <label>Children</label>
+        <div class="child-checkbox-list" id="editChildCheckboxList"></div>
+      </div>
+      <p class="form-message" id="editAccountMessage"></p>
+      <div class="modal-actions">
+        <button type="button" class="chalk-btn chalk-btn--outline" id="cancelEditAccountBtn">Cancel</button>
+        <button type="submit" class="chalk-btn">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="../shared/auth-client.js"></script>
+<script src="../shared/auth-guard.js"></script>
+<script src="../shared/sidebar.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
