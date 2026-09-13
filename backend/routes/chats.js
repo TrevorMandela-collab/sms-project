@@ -196,15 +196,16 @@ router.patch('/:chatId/messages/:messageId', requireAuth, requireMembership, saf
 
 /**
  * DELETE /api/chats/:chatId/messages/:messageId
- * Delete your own message, or (if admin) anyone's. Soft-delete: keeps the
- * record — so any replies quoting it still resolve — but clears the text.
+ * Delete your own message only — even admins can't delete someone
+ * else's. Soft-delete: keeps the record — so any replies quoting it
+ * still resolve — but clears the text.
  */
 router.delete('/:chatId/messages/:messageId', requireAuth, requireMembership, safe(async (req, res) => {
   const message = await db.findById(MESSAGES, req.params.messageId);
   if (!message || message.chatId !== req.params.chatId) {
     return res.status(404).json({ error: 'Message not found.' });
   }
-  if (message.senderId !== req.user.id && req.user.role !== 'admin') {
+  if (message.senderId !== req.user.id) {
     return res.status(403).json({ error: 'You can only delete your own messages.' });
   }
   const updated = await db.update(MESSAGES, req.params.messageId, {

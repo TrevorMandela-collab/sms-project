@@ -1,5 +1,6 @@
 const createCrudRouter = require('../utils/crudRouterFactory');
 const db = require('../utils/db');
+const { getTeacherClassIds } = require('../utils/teacherScope');
 
 // Each assignment: { id, title, description, dueDate, classId, subjectId, maxScore, createdBy }
 // Assignments don't carry a studentId directly — they belong to a class.
@@ -35,5 +36,13 @@ module.exports = createCrudRouter('assignments', {
   },
   scopeForParent: (records, user) => scopeByStudentIds(records, user.childIds || []),
   scopeForStudent: (records, user) => scopeByStudentIds(records, user.studentId ? [user.studentId] : []),
+  scopeForTeacher: async (records, user) => {
+    const classIds = await getTeacherClassIds(user);
+    return records.filter(a => classIds.has(a.classId));
+  },
+  writeGuardForTeacher: async (record, user) => {
+    const classIds = await getTeacherClassIds(user);
+    return classIds.has(record.classId);
+  },
   seed: [],
 });

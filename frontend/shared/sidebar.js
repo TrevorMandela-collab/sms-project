@@ -14,18 +14,18 @@
     { key: 'student-portal', label: 'My Portal', icon: '🎒', href: '../student-portal/index.html', roles: ['student'] },
     { key: 'parent-portal', label: 'My Portal', icon: '🎒', href: '../parent-portal/index.html', roles: ['parent'] },
     { key: 'students', label: 'Students', icon: '🎓', href: '../students/index.html', roles: ['admin', 'teacher'] },
-    { key: 'teachers', label: 'Teachers', icon: '🍎', href: '../teachers/index.html', roles: ['admin', 'teacher'] },
+    { key: 'teachers', label: 'Teachers', icon: '🍎', href: '../teachers/index.html', roles: ['admin'] },
     { key: 'manage-logins', label: 'Manage Logins', icon: '🔑', href: '../manage-logins/index.html', roles: ['admin'] },
     { key: 'chats', label: 'Chats', icon: '💬', href: '../chats/index.html', roles: ['admin', 'teacher', 'parent', 'student'] },
     { key: 'teacher-portal', label: 'My Classes', icon: '🎒', href: '../teacher-portal/index.html', roles: ['teacher'] },
-    { key: 'classes-subjects', label: 'Classes & Subjects', icon: '📚', href: '../classes-subjects/index.html', roles: ['admin', 'teacher'] },
+    { key: 'classes-subjects', label: 'Classes & Subjects', icon: '📚', href: '../classes-subjects/index.html', roles: ['admin'] },
     { key: 'assignments', label: 'Assignments', icon: '📋', href: '../assignments/index.html', roles: ['admin', 'teacher'] },
     { key: 'attendance', label: 'Attendance', icon: '📅', href: '../attendance/index.html', roles: ['admin', 'teacher'] },
     { key: 'exams', label: 'Exams & Results', icon: '📝', href: '../exams/index.html', roles: ['admin', 'teacher'] },
     { key: 'fees', label: 'Fees & Payments', icon: '💰', href: '../fees/index.html', roles: ['admin', 'teacher'] },
     { key: 'timetable', label: 'Timetable', icon: '🗓️', href: '../timetable/index.html', roles: ['admin', 'teacher'] },
-    { key: 'library', label: 'Library', icon: '📖', href: '../library/index.html', roles: ['admin', 'teacher'] },
-    { key: 'announcements', label: 'Announcements', icon: '📢', href: '../announcements/index.html', roles: ['admin', 'teacher'] },
+    { key: 'library', label: 'Library', icon: '📖', href: '../library/index.html', roles: ['admin'] },
+    { key: 'announcements', label: 'Announcements', icon: '📢', href: '../announcements/index.html', roles: ['admin'] },
   ];
 
   function currentModuleKey() {

@@ -17,6 +17,17 @@ const { requireAuth, requireRole } = require('../middleware/auth');
  *   scopeForStudent: async (records, user) => filteredRecords
  *     Same idea, applied to student-role GET requests so a student only
  *     ever sees their own records.
+ *   scopeForTeacher: async (records, user) => filteredRecords
+ *     Same idea, applied to teacher-role GET requests — so a teacher only
+ *     ever sees records for their own assigned class(es), not the whole
+ *     school. See utils/teacherScope.js for the shared lookup helpers.
+ *   writeGuardForTeacher: async (candidateRecord, user) => boolean
+ *     For teacher-role CREATE/UPDATE/DELETE — checked against what the
+ *     record will look like after the write (existing fields merged with
+ *     the request body). Returning false blocks the write with a 403, so
+ *     a teacher can't create or edit a record for a student/class outside
+ *     their own assignment even though they otherwise have write access
+ *     to this collection.
  *   seed: array of default records to seed the collection with if it's
  *     currently empty
  */
@@ -44,7 +55,17 @@ function createCrudRouter(collection, options = {}) {
     if (user.role === 'student' && options.scopeForStudent) {
       return options.scopeForStudent(records, user);
     }
+    if (user.role === 'teacher' && options.scopeForTeacher) {
+      return options.scopeForTeacher(records, user);
+    }
     return records;
+  }
+
+  // For a teacher-role write, checks the record-as-it-will-be against
+  // writeGuardForTeacher. Every other role/collection is unaffected.
+  async function teacherMayWrite(candidateRecord, user) {
+    if (user.role !== 'teacher' || !options.writeGuardForTeacher) return true;
+    return options.writeGuardForTeacher(candidateRecord, user);
   }
 
   // Wraps an async handler so a thrown/rejected error becomes a 500
@@ -77,6 +98,10 @@ function createCrudRouter(collection, options = {}) {
 
   // ---- CREATE ----
   router.post('/', requireAuth, requireRole(...permissions.create), safe(async (req, res) => {
+    const mayWrite = await teacherMayWrite(req.body, req.user);
+    if (!mayWrite) {
+      return res.status(403).json({ error: "You can only add records for your own assigned class." });
+    }
     const record = {
       id: uuidv4(),
       ...req.body,
@@ -89,17 +114,33 @@ function createCrudRouter(collection, options = {}) {
 
   // ---- UPDATE ----
   router.patch('/:id', requireAuth, requireRole(...permissions.update), safe(async (req, res) => {
+    const existing = await db.findById(collection, req.params.id);
+    if (!existing) return res.status(404).json({ error: `${collection} record not found.` });
+
+    const candidate = { ...existing, ...req.body };
+    const mayWrite = await teacherMayWrite(candidate, req.user);
+    if (!mayWrite) {
+      return res.status(403).json({ error: "You can only modify records for your own assigned class." });
+    }
+
     const updated = await db.update(collection, req.params.id, {
       ...req.body,
       updatedAt: new Date().toISOString(),
       updatedBy: req.user.id,
     });
-    if (!updated) return res.status(404).json({ error: `${collection} record not found.` });
     res.json(updated);
   }));
 
   // ---- DELETE ----
   router.delete('/:id', requireAuth, requireRole(...permissions.delete), safe(async (req, res) => {
+    const existing = await db.findById(collection, req.params.id);
+    if (!existing) return res.status(404).json({ error: `${collection} record not found.` });
+
+    const mayWrite = await teacherMayWrite(existing, req.user);
+    if (!mayWrite) {
+      return res.status(403).json({ error: "You can only delete records for your own assigned class." });
+    }
+
     const removed = await db.remove(collection, req.params.id);
     if (!removed) return res.status(404).json({ error: `${collection} record not found.` });
     res.status(204).end();

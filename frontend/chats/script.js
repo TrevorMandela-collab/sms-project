@@ -98,7 +98,7 @@ function renderMessages(messages) {
 
   container.innerHTML = messages.map(m => {
     const isOwn = m.senderId === user.id;
-    const canModify = isOwn || isAdmin;
+    const canModify = isOwn;
 
     if (m.deleted) {
       return `
