@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../utils/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { broadcastToChat } = require('../utils/realtime');
 
 const router = express.Router();
 const CHATS = 'chats';
@@ -164,6 +165,7 @@ router.post('/:chatId/messages', requireAuth, requireMembership, safe(async (req
     createdAt: new Date().toISOString(),
   };
   await db.insert(MESSAGES, message);
+  broadcastToChat(req.params.chatId, { type: 'chat:update', chatId: req.params.chatId });
   res.status(201).json(message);
 }));
 
@@ -191,6 +193,7 @@ router.patch('/:chatId/messages/:messageId', requireAuth, requireMembership, saf
     edited: true,
     editedAt: new Date().toISOString(),
   });
+  broadcastToChat(req.params.chatId, { type: 'chat:update', chatId: req.params.chatId });
   res.json(updated);
 }));
 
@@ -214,6 +217,7 @@ router.delete('/:chatId/messages/:messageId', requireAuth, requireMembership, sa
     deletedAt: new Date().toISOString(),
     reactions: {},
   });
+  broadcastToChat(req.params.chatId, { type: 'chat:update', chatId: req.params.chatId });
   res.json(updated);
 }));
 
@@ -241,6 +245,7 @@ router.post('/:chatId/messages/:messageId/react', requireAuth, requireMembership
     delete reactions[emoji];
   }
   const updated = await db.update(MESSAGES, req.params.messageId, { reactions });
+  broadcastToChat(req.params.chatId, { type: 'chat:update', chatId: req.params.chatId });
   res.json(updated);
 }));
 

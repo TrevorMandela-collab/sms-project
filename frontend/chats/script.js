@@ -1,8 +1,10 @@
 /* =========================================================
    Chats module — Discord-style group chats ("servers").
    Admins create chats and manage membership; anyone can also
-   join a chat themselves with an invite code. Messages refresh
-   on a short poll rather than a live socket (v1 scope).
+   join a chat themselves with an invite code. New messages,
+   edits, deletes, and reactions arrive instantly over a
+   WebSocket; a slow poll runs underneath purely as a safety
+   net in case the socket connection drops.
 ========================================================= */
 
 const user = SmsAuth.getUser();
@@ -18,12 +20,59 @@ let settingsMemberSearchTerm = '';
 let settingsCheckedIds = new Set();
 let replyingToId = null;
 let editingMessageId = null;
+let socket = null;
+let socketReconnectDelay = 1000;
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 if (isAdmin) {
   document.getElementById('createChatBtn').style.display = '';
 }
+
+/* ---------- Live updates (WebSocket) ---------- */
+function connectSocket() {
+  const httpBase = SMS_API_BASE.replace(/\/api\/?$/, '');
+  const wsBase = httpBase.replace(/^http/, 'ws');
+  const token = SmsAuth.getToken();
+  if (!token) return;
+
+  socket = new WebSocket(`${wsBase}/ws?token=${encodeURIComponent(token)}`);
+
+  socket.addEventListener('open', () => {
+    socketReconnectDelay = 1000; // reset backoff once a connection succeeds
+    if (activeChatId) sendSocketMessage({ type: 'join', chatId: activeChatId });
+  });
+
+  socket.addEventListener('message', (event) => {
+    let msg;
+    try {
+      msg = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    if (msg.type === 'chat:update' && msg.chatId === activeChatId) {
+      loadMessages();
+    }
+  });
+
+  socket.addEventListener('close', () => {
+    socket = null;
+    setTimeout(connectSocket, socketReconnectDelay);
+    socketReconnectDelay = Math.min(socketReconnectDelay * 2, 15000);
+  });
+
+  socket.addEventListener('error', () => {
+    socket.close();
+  });
+}
+
+function sendSocketMessage(payload) {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(payload));
+  }
+}
+
+connectSocket();
 
 /* ---------- Chat list ---------- */
 async function loadChats() {
@@ -54,7 +103,11 @@ function renderServerRail() {
 
 /* ---------- Selecting / opening a chat ---------- */
 async function selectChat(chatId) {
+  if (activeChatId && activeChatId !== chatId) {
+    sendSocketMessage({ type: 'leave', chatId: activeChatId });
+  }
   activeChatId = chatId;
+  sendSocketMessage({ type: 'join', chatId });
   renderServerRail();
   const chat = chatsState.find(c => c.id === chatId);
   if (!chat) return;
@@ -255,7 +308,9 @@ document.getElementById('chatMessages').addEventListener('click', async (e) => {
 
 function restartPolling() {
   if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(loadMessages, 4000);
+  // Real-time updates arrive over the WebSocket; this is just a safety
+  // net in case that connection drops and hasn't reconnected yet.
+  pollTimer = setInterval(loadMessages, 15000);
 }
 
 /* ---------- Sending a message ---------- */

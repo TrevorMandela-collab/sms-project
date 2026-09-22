@@ -1,4 +1,5 @@
 require('dotenv').config();
+const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
@@ -21,6 +22,7 @@ const eventsRoutes = require('./routes/events');
 const inviteCodesRoutes = require('./routes/invite-codes');
 const chatsRoutes = require('./routes/chats');
 const db = require('./utils/db');
+const { initRealtime } = require('./utils/realtime');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -58,9 +60,15 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Something went wrong on the server.' });
 });
 
-app.listen(PORT, () => {
+// Use an explicit http server (rather than app.listen directly) so the
+// WebSocket server can share the same port.
+const server = http.createServer(app);
+initRealtime(server);
+
+server.listen(PORT, () => {
   console.log(`SMS backend running on http://localhost:${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/api/health`);
+  console.log(`WebSocket endpoint: ws://localhost:${PORT}/ws`);
 });
 
 // Confirm the database is actually reachable at startup — this is the
