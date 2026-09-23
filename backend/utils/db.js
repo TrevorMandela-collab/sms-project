@@ -1,43 +1,38 @@
 /* =========================================================
-   Postgres-backed data store.
+   Collection-backed data store.
 
-   Same collection-based API as before (readAll/writeAll/
-   findById/insert/update/remove/ensureFile), so route files
-   don't need to change shape — but every function is now
-   async, backed by a real database instead of local JSON
-   files. This is what actually survives a Render restart:
-   the previous JSON-file version lived on the app container's
-   own disk, which resets on every redeploy or free-tier
-   cold start; a hosted Postgres instance persists
-   independently of that.
-
-   All records for every "collection" (students, teachers,
-   attendance, etc.) live in one generic table, keyed by
-   (collection, id), with the record itself stored as JSONB.
-   This keeps the schema simple and means adding a new
-   collection never requires a migration.
+   Uses Postgres when DATABASE_URL is set and SQLite otherwise.
+   Both backends expose the same async collection API so route files
+   do not need to know which database is being used.
 ========================================================= */
 
-const { Pool } = require('pg');
+const fs = require("fs");
+const path = require("path");
+const Database = require("better-sqlite3");
+const { Pool } = require("pg");
 
-if (!process.env.DATABASE_URL) {
-  console.warn(
-    '[db] WARNING: DATABASE_URL is not set. Set it to a Postgres connection ' +
-    'string (e.g. from Render Postgres, Neon, or Supabase) or nothing will persist.'
-  );
-}
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  // Most free hosted Postgres providers (Render, Neon, Supabase) require SSL
-  // but use certificates that aren't in Node's default trust store.
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
-});
-
+const usePostgres = Boolean(process.env.DATABASE_URL);
+let pool = null;
+let sqlite = null;
 let schemaReady = null;
 
-function ensureSchema() {
-  if (!schemaReady) {
+if (usePostgres) {
+  pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+  });
+} else {
+  const sqlitePath =
+    process.env.SQLITE_PATH || path.join(__dirname, "..", "data", "sms.sqlite");
+  fs.mkdirSync(path.dirname(sqlitePath), { recursive: true });
+  sqlite = new Database(sqlitePath);
+  console.warn(`[db] DATABASE_URL is not set; using SQLite at ${sqlitePath}`);
+}
+
+async function ensureSchema() {
+  if (schemaReady) return schemaReady;
+
+  if (usePostgres) {
     schemaReady = pool.query(`
       CREATE TABLE IF NOT EXISTS store (
         collection TEXT NOT NULL,
@@ -46,47 +41,99 @@ function ensureSchema() {
         PRIMARY KEY (collection, id)
       );
     `);
+  } else {
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS store (
+        collection TEXT NOT NULL,
+        id TEXT NOT NULL,
+        data TEXT NOT NULL,
+        PRIMARY KEY (collection, id)
+      );
+    `);
+    schemaReady = Promise.resolve();
   }
+
   return schemaReady;
 }
 
-/**
- * Seeds a collection with default records, but only if it's currently
- * empty — mirrors the old "create the file if it doesn't exist yet"
- * behaviour without ever clobbering real data.
- */
 async function ensureFile(collection, seedData = []) {
   await ensureSchema();
   if (!seedData.length) return;
-  const { rows } = await pool.query('SELECT 1 FROM store WHERE collection = $1 LIMIT 1', [collection]);
-  if (rows.length) return; // already has data (or was already seeded) — leave it alone
 
-  for (const record of seedData) {
-    await pool.query(
-      'INSERT INTO store (collection, id, data) VALUES ($1, $2, $3) ON CONFLICT (collection, id) DO NOTHING',
-      [collection, record.id, record]
+  if (usePostgres) {
+    const { rows } = await pool.query(
+      "SELECT 1 FROM store WHERE collection = $1 LIMIT 1",
+      [collection],
     );
+    if (rows.length) return;
+    for (const record of seedData) {
+      await pool.query(
+        "INSERT INTO store (collection, id, data) VALUES ($1, $2, $3) ON CONFLICT (collection, id) DO NOTHING",
+        [collection, record.id, record],
+      );
+    }
+    return;
   }
+
+  const hasRows = sqlite
+    .prepare("SELECT 1 FROM store WHERE collection = ? LIMIT 1")
+    .get(collection);
+  if (hasRows) return;
+  const insert = sqlite.prepare(
+    "INSERT OR IGNORE INTO store (collection, id, data) VALUES (?, ?, ?)",
+  );
+  const seed = sqlite.transaction((records) =>
+    records.forEach((record) => {
+      insert.run(collection, record.id, JSON.stringify(record));
+    }),
+  );
+  seed(seedData);
 }
 
 async function readAll(collection) {
   await ensureSchema();
-  const { rows } = await pool.query('SELECT data FROM store WHERE collection = $1', [collection]);
-  return rows.map(r => r.data);
+  if (usePostgres) {
+    const { rows } = await pool.query(
+      "SELECT data FROM store WHERE collection = $1",
+      [collection],
+    );
+    return rows.map((row) => row.data);
+  }
+  return sqlite
+    .prepare("SELECT data FROM store WHERE collection = ?")
+    .all(collection)
+    .map((row) => JSON.parse(row.data));
 }
 
 async function writeAll(collection, records) {
   await ensureSchema();
+  if (!usePostgres) {
+    const replace = sqlite.transaction((items) => {
+      sqlite.prepare("DELETE FROM store WHERE collection = ?").run(collection);
+      const insert = sqlite.prepare(
+        "INSERT INTO store (collection, id, data) VALUES (?, ?, ?)",
+      );
+      items.forEach((record) =>
+        insert.run(collection, record.id, JSON.stringify(record)),
+      );
+    });
+    replace(records);
+    return;
+  }
+
   const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    await client.query('DELETE FROM store WHERE collection = $1', [collection]);
+    await client.query("BEGIN");
+    await client.query("DELETE FROM store WHERE collection = $1", [collection]);
     for (const record of records) {
-      await client.query('INSERT INTO store (collection, id, data) VALUES ($1, $2, $3)', [collection, record.id, record]);
+      await client.query(
+        "INSERT INTO store (collection, id, data) VALUES ($1, $2, $3)",
+        [collection, record.id, record],
+      );
     }
-    await client.query('COMMIT');
+    await client.query("COMMIT");
   } catch (err) {
-    await client.query('ROLLBACK');
+    await client.query("ROLLBACK");
     throw err;
   } finally {
     client.release();
@@ -95,13 +142,31 @@ async function writeAll(collection, records) {
 
 async function findById(collection, id) {
   await ensureSchema();
-  const { rows } = await pool.query('SELECT data FROM store WHERE collection = $1 AND id = $2', [collection, id]);
+  if (!usePostgres) {
+    const row = sqlite
+      .prepare("SELECT data FROM store WHERE collection = ? AND id = ?")
+      .get(collection, id);
+    return row ? JSON.parse(row.data) : null;
+  }
+  const { rows } = await pool.query(
+    "SELECT data FROM store WHERE collection = $1 AND id = $2",
+    [collection, id],
+  );
   return rows[0]?.data || null;
 }
 
 async function insert(collection, record) {
   await ensureSchema();
-  await pool.query('INSERT INTO store (collection, id, data) VALUES ($1, $2, $3)', [collection, record.id, record]);
+  if (!usePostgres) {
+    sqlite
+      .prepare("INSERT INTO store (collection, id, data) VALUES (?, ?, ?)")
+      .run(collection, record.id, JSON.stringify(record));
+    return record;
+  }
+  await pool.query(
+    "INSERT INTO store (collection, id, data) VALUES ($1, $2, $3)",
+    [collection, record.id, record],
+  );
   return record;
 }
 
@@ -110,14 +175,42 @@ async function update(collection, id, updates) {
   const existing = await findById(collection, id);
   if (!existing) return null;
   const updated = { ...existing, ...updates, id };
-  await pool.query('UPDATE store SET data = $1 WHERE collection = $2 AND id = $3', [updated, collection, id]);
+  if (!usePostgres) {
+    sqlite
+      .prepare("UPDATE store SET data = ? WHERE collection = ? AND id = ?")
+      .run(JSON.stringify(updated), collection, id);
+    return updated;
+  }
+  await pool.query(
+    "UPDATE store SET data = $1 WHERE collection = $2 AND id = $3",
+    [updated, collection, id],
+  );
   return updated;
 }
 
 async function remove(collection, id) {
   await ensureSchema();
-  const { rowCount } = await pool.query('DELETE FROM store WHERE collection = $1 AND id = $2', [collection, id]);
+  if (!usePostgres) {
+    const result = sqlite
+      .prepare("DELETE FROM store WHERE collection = ? AND id = ?")
+      .run(collection, id);
+    return result.changes > 0;
+  }
+  const { rowCount } = await pool.query(
+    "DELETE FROM store WHERE collection = $1 AND id = $2",
+    [collection, id],
+  );
   return rowCount > 0;
 }
 
-module.exports = { readAll, writeAll, findById, insert, update, remove, ensureFile, ensureSchema, pool };
+module.exports = {
+  readAll,
+  writeAll,
+  findById,
+  insert,
+  update,
+  remove,
+  ensureFile,
+  ensureSchema,
+  pool,
+};

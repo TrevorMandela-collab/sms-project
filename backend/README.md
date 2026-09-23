@@ -9,11 +9,12 @@ exams, timetable, and library.
 ```bash
 cd sms-backend
 npm install
-cp .env.example .env      # then edit JWT_SECRET and DATABASE_URL
+cp .env.example .env      # then edit JWT_SECRET and optionally DATABASE_URL
 npm start                 # or: npm run dev (auto-restarts on file changes)
 ```
 
-You need a Postgres database — pick one:
+For production, use a Postgres database — pick one:
+
 - **Render**: New → PostgreSQL (free tier available). Copy the "Internal
   Database URL" if your backend is also on Render, or "External Database
   URL" otherwise.
@@ -24,6 +25,9 @@ Paste that connection string into `DATABASE_URL` in `.env` (locally) and
 into your Render service's environment variables (in production — `.env`
 is never read there, only local `.env` files are).
 
+Without `DATABASE_URL`, local development automatically uses SQLite at
+`backend/data/sms.sqlite`. You can override that location with `SQLITE_PATH`.
+
 Server runs on `http://localhost:4000` by default. Health check:
 `GET /api/health`. Watch the startup logs for `[db] Connected and schema
 ready.` — if you instead see `[db] FAILED to connect`, `DATABASE_URL` is
@@ -31,19 +35,11 @@ missing or wrong.
 
 ## Data storage
 
-Records live in a single Postgres table (`store`), one row per record,
-keyed by `(collection, id)` with the record itself as JSONB — see
-`utils/db.js`. This is a genuine, persistent database: unlike the
-project's original JSON-file storage, it survives your app container
-restarting, redeploying, or (on Render's free tier) spinning down after
-inactivity. Every route file calls the same five async functions
-(`readAll`, `findById`, `insert`, `update`, `remove`), so if you later
-want a normalized relational schema instead of one big JSONB table, only
-`utils/db.js` needs to change.
-
-**Important:** without a working `DATABASE_URL`, nothing persists at all
-and every request will fail once the connection is attempted. This is
-not optional configuration — set it before deploying.
+Records live in a single `store` table, one row per record, keyed by
+`(collection, id)` with the record itself stored as JSON. Postgres is used
+when `DATABASE_URL` is set; SQLite is used otherwise. Every route file calls
+the same five async functions (`readAll`, `findById`, `insert`, `update`,
+`remove`), so the storage engine can change without route changes.
 
 ## Roles
 
