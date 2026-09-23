@@ -5,8 +5,8 @@
    itself, not from anything chosen on this page.
 ========================================================= */
 
-const registerForm = document.getElementById('registerForm');
-const errorBanner = document.getElementById('errorBanner');
+const registerForm = document.getElementById("registerForm");
+const errorBanner = document.getElementById("errorBanner");
 
 // If already logged in, there's nothing to register for.
 if (SmsAuth.isLoggedIn()) {
@@ -15,24 +15,31 @@ if (SmsAuth.isLoggedIn()) {
 
 function showError(message) {
   errorBanner.textContent = message;
-  errorBanner.style.display = 'block';
+  errorBanner.style.display = "block";
 }
 
 function clearError() {
-  errorBanner.style.display = 'none';
+  errorBanner.style.display = "none";
 }
 
-registerForm.addEventListener('submit', async (e) => {
+registerForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   clearError();
 
-  const code = document.getElementById('regCode').value.trim();
-  const name = document.getElementById('regName').value.trim();
-  const email = document.getElementById('regEmail').value.trim();
-  const password = document.getElementById('regPassword').value;
+  const code = document.getElementById("regCode").value.trim();
+  const role = document.getElementById("regRole").value;
+  const name = document.getElementById("regName").value.trim();
+  const email = document.getElementById("regEmail").value.trim();
+  const password = document.getElementById("regPassword").value;
 
   try {
-    const user = await SmsAuth.registerWithCode({ code, name, email, password });
+    const user = await SmsAuth.registerWithCode({
+      code,
+      name,
+      email,
+      password,
+      role,
+    });
     window.location.href = SmsAuth.homeUrlForRole(user.role);
   } catch (err) {
     showError(err.message);

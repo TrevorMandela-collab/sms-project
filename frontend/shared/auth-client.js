@@ -92,11 +92,11 @@ const SmsAuth = {
    * Public student self-registration via an admin-issued invite code.
    * Logs the new student in immediately on success.
    */
-  async registerWithCode({ code, name, email, password }) {
+  async registerWithCode({ code, name, email, password, role }) {
     const res = await fetch(`${SMS_API_BASE}/auth/register-with-code`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code, name, email, password }),
+      body: JSON.stringify({ code, name, email, password, role }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Registration failed.");

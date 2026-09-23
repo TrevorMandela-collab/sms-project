@@ -6,12 +6,12 @@
      bootstrap admin (see backend/routes/auth.js).
 ========================================================= */
 
-const loginForm = document.getElementById('loginForm');
-const bootstrapForm = document.getElementById('bootstrapForm');
-const errorBanner = document.getElementById('errorBanner');
-const modeSubtitle = document.getElementById('modeSubtitle');
-const loginFootnote = document.getElementById('loginFootnote');
-const showBootstrapBtn = document.getElementById('showBootstrapBtn');
+const loginForm = document.getElementById("loginForm");
+const bootstrapForm = document.getElementById("bootstrapForm");
+const errorBanner = document.getElementById("errorBanner");
+const modeSubtitle = document.getElementById("modeSubtitle");
+const loginFootnote = document.getElementById("loginFootnote");
+const showBootstrapBtn = document.getElementById("showBootstrapBtn");
 
 // If already logged in, skip straight to the right home page for the role.
 if (SmsAuth.isLoggedIn()) {
@@ -20,26 +20,26 @@ if (SmsAuth.isLoggedIn()) {
 
 function showError(message) {
   errorBanner.textContent = message;
-  errorBanner.style.display = 'block';
+  errorBanner.style.display = "block";
 }
 
 function clearError() {
-  errorBanner.style.display = 'none';
+  errorBanner.style.display = "none";
 }
 
-showBootstrapBtn.addEventListener('click', () => {
-  loginForm.style.display = 'none';
-  bootstrapForm.style.display = 'block';
-  loginFootnote.style.display = 'none';
-  modeSubtitle.textContent = 'Create the first admin account';
+showBootstrapBtn.addEventListener("click", () => {
+  loginForm.style.display = "none";
+  bootstrapForm.style.display = "block";
+  loginFootnote.style.display = "none";
+  modeSubtitle.textContent = "Create the first admin account";
   clearError();
 });
 
-loginForm.addEventListener('submit', async (e) => {
+loginForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   clearError();
-  const email = document.getElementById('loginEmail').value.trim();
-  const password = document.getElementById('loginPassword').value;
+  const email = document.getElementById("loginEmail").value.trim();
+  const password = document.getElementById("loginPassword").value;
 
   try {
     const user = await SmsAuth.login(email, password);
@@ -49,20 +49,27 @@ loginForm.addEventListener('submit', async (e) => {
   }
 });
 
-bootstrapForm.addEventListener('submit', async (e) => {
+bootstrapForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   clearError();
-  const name = document.getElementById('bootName').value.trim();
-  const email = document.getElementById('bootEmail').value.trim();
-  const password = document.getElementById('bootPassword').value;
+  const schoolName = document.getElementById("bootSchoolName").value.trim();
+  const name = document.getElementById("bootName").value.trim();
+  const email = document.getElementById("bootEmail").value.trim();
+  const password = document.getElementById("bootPassword").value;
 
   try {
-    const result = await SmsAuth.register({ name, email, password, role: 'admin' });
+    const result = await SmsAuth.register({
+      name,
+      email,
+      password,
+      role: "admin",
+      schoolName,
+    });
     if (!result.isFirstAdmin) {
-      showError('An admin account already exists. Please sign in instead.');
+      showError("An admin account already exists. Please sign in instead.");
       return;
     }
-    window.location.href = '../dashboard/index.html';
+    window.location.href = "../dashboard/index.html";
   } catch (err) {
     showError(err.message);
   }
