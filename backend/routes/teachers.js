@@ -7,5 +7,7 @@ module.exports = createCrudRouter('teachers', {
     update: ['admin'],
     delete: ['admin'],
   },
+    searchFields: ['name', 'contact'],
+    sortFields: ['name', 'createdAt'],
   seed: [],
 });

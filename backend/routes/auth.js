@@ -16,7 +16,10 @@ function safe(handler) {
   return (req, res) => {
     handler(req, res).catch((err) => {
       console.error("[auth] request failed:", err);
-      res.status(500).json({ error: "Something went wrong on the server." });
+      res.status(500).json({
+        success: false,
+        error: { code: "INTERNAL_ERROR", message: "The server could not complete that request." },
+      });
     });
   };
 }
@@ -32,7 +35,7 @@ router.post(
     const { name, email, password, role, childIds, teacherId, schoolName } =
       req.body;
 
-    if (!name || !email || !password || !role) {
+    if (!name?.trim() || !email?.trim() || !password || !role) {
       return res
         .status(400)
         .json({ error: "name, email, password, and role are required." });
@@ -41,6 +44,18 @@ router.post(
       return res
         .status(400)
         .json({ error: `role must be one of: ${ROLES.join(", ")}` });
+    }
+    if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
+      return res.status(400).json({
+        success: false,
+        error: { code: "INVALID_EMAIL", message: "Enter a valid email address." },
+      });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        error: { code: "WEAK_PASSWORD", message: "Password must be at least 6 characters." },
+      });
     }
 
     const users = await db.readAll(COLLECTION);

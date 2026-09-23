@@ -19,5 +19,15 @@ module.exports = createCrudRouter('exams', {
     const ids = await getTeacherStudentIds(user);
     return ids.has(record.studentId);
   },
+  validate: async exam => {
+    const score = Number(exam.score);
+    const maxScore = Number(exam.maxScore);
+    if (!Number.isFinite(maxScore) || maxScore <= 0 || !Number.isFinite(score) || score < 0 || score > maxScore) {
+      const error = new Error('Score must be between zero and the maximum score.');
+      error.statusCode = 400;
+      error.code = 'INVALID_EXAM_SCORE';
+      throw error;
+    }
+  },
   seed: [],
 });

@@ -1,161 +1,721 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dashboard — School Management</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@400;700&family=Courier+Prime:wght@400;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="../shared/theme.css">
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard | Mandela SMS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../shared/theme.css" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="dashboard-shell">
+      <aside
+        class="command-sidebar"
+        id="commandSidebar"
+        aria-label="Primary navigation"
+      >
+        <div class="brand-lockup">
+          <span class="brand-mark">M</span>
+          <span class="brand-copy"
+            ><strong>Mandela</strong><small>SMS admin</small></span
+          >
+          <button
+            class="sidebar-collapse"
+            id="sidebarCollapse"
+            type="button"
+            aria-label="Collapse sidebar"
+            aria-expanded="true"
+          >
+            ←
+          </button>
+        </div>
+        <nav class="side-nav">
+          <div class="nav-group">
+            <span class="nav-label">Overview</span>
+            <a class="nav-item is-active" href="index.html" title="Dashboard"
+              ><span class="nav-icon">⌂</span><span>Dashboard</span></a
+            >
+            <a class="nav-item" href="#pulse" title="School Pulse"
+              ><span class="nav-icon">◈</span><span>School Pulse</span></a
+            >
+          </div>
+          <div class="nav-group">
+            <span class="nav-label">People</span>
+            <a class="nav-item" href="../students/index.html" title="Students"
+              ><span class="nav-icon">◉</span><span>Students</span></a
+            >
+            <a class="nav-item" href="../teachers/index.html" title="Teachers"
+              ><span class="nav-icon">♙</span><span>Teachers</span></a
+            >
+            <a class="nav-item" href="#people" title="Parents"
+              ><span class="nav-icon">♧</span><span>Parents</span></a
+            >
+            <a class="nav-item" href="#people" title="Staff"
+              ><span class="nav-icon">▣</span><span>Staff</span></a
+            >
+          </div>
+          <div class="nav-group">
+            <span class="nav-label">Academics</span>
+            <a
+              class="nav-item"
+              href="../classes-subjects/index.html"
+              title="Classes"
+              ><span class="nav-icon">▤</span><span>Classes</span></a
+            >
+            <a
+              class="nav-item"
+              href="../classes-subjects/index.html"
+              title="Subjects"
+              ><span class="nav-icon">✦</span><span>Subjects</span></a
+            >
+            <a class="nav-item" href="../timetable/index.html" title="Timetable"
+              ><span class="nav-icon">▦</span><span>Timetable</span></a
+            >
+            <a class="nav-item" href="../exams/index.html" title="Exams"
+              ><span class="nav-icon">◇</span><span>Exams</span></a
+            >
+            <a class="nav-item" href="../exams/index.html" title="Results"
+              ><span class="nav-icon">◒</span><span>Results</span></a
+            >
+            <a
+              class="nav-item"
+              href="../assignments/index.html"
+              title="Assignments"
+              ><span class="nav-icon">☷</span><span>Assignments</span></a
+            >
+          </div>
+          <div class="nav-group nav-group--compact">
+            <span class="nav-label">Operations</span>
+            <a
+              class="nav-item"
+              href="../attendance/index.html"
+              title="Attendance"
+              ><span class="nav-icon">✓</span><span>Attendance</span></a
+            >
+            <a class="nav-item" href="../fees/index.html" title="Fees & Finance"
+              ><span class="nav-icon">₵</span><span>Fees &amp; Finance</span></a
+            >
+            <a class="nav-item" href="../library/index.html" title="Library"
+              ><span class="nav-icon">▥</span><span>Library</span></a
+            >
+          </div>
+          <div class="nav-group nav-group--compact">
+            <span class="nav-label">Communication</span>
+            <a
+              class="nav-item"
+              href="../announcements/index.html"
+              title="Announcements"
+              ><span class="nav-icon">◌</span><span>Announcements</span></a
+            >
+            <a class="nav-item" href="../chats/index.html" title="Messages"
+              ><span class="nav-icon">◍</span><span>Messages</span></a
+            >
+            <a class="nav-item" href="#events" title="Events"
+              ><span class="nav-icon">◫</span><span>Events</span></a
+            >
+          </div>
+          <div class="nav-group nav-group--compact">
+            <span class="nav-label">System</span>
+            <a
+              class="nav-item"
+              href="../manage-logins/index.html"
+              title="Users & Roles"
+              ><span class="nav-icon">⚿</span><span>Users &amp; Roles</span></a
+            >
+            <a class="nav-item" href="#settings" title="School Settings"
+              ><span class="nav-icon">⚙</span><span>School Settings</span></a
+            >
+          </div>
+        </nav>
+        <div class="sidebar-profile">
+          <span class="profile-avatar" id="sidebarAvatar">AD</span>
+          <span class="profile-copy"
+            ><strong id="sidebarName">Admin</strong
+            ><small>Administrator</small></span
+          >
+          <button
+            class="profile-more"
+            id="sidebarProfileButton"
+            type="button"
+            aria-label="Open profile menu"
+          >
+            •••
+          </button>
+        </div>
+      </aside>
 
-<div class="app-shell">
-  <div id="sidebarSlot"></div>
-  <main class="app-main">
-<div class="board">
+      <main class="dashboard-main">
+        <header class="topbar">
+          <div class="mobile-brand">
+            <span class="brand-mark">M</span><strong>Mandela SMS</strong>
+          </div>
+          <button
+            class="mobile-menu"
+            id="mobileMenu"
+            type="button"
+            aria-label="Open navigation"
+          >
+            ☰
+          </button>
+          <div class="breadcrumb">
+            <span>Workspace</span><b>/</b><strong>Dashboard</strong>
+          </div>
+          <div class="topbar-actions">
+            <button
+              class="icon-action"
+              id="searchButton"
+              type="button"
+              aria-label="Search"
+            >
+              ⌕
+            </button>
+            <button
+              class="icon-action notification-trigger"
+              id="notificationButton"
+              type="button"
+              aria-label="Notifications"
+            >
+              <span>♢</span><i>3</i>
+            </button>
+            <button class="top-profile" id="topProfile" type="button">
+              <span class="profile-avatar profile-avatar--small" id="topAvatar"
+                >AD</span
+              ><span
+                ><strong id="topName">Admin</strong
+                ><small>Administrator</small></span
+              ><b>⌄</b>
+            </button>
+            <div class="profile-menu" id="profileMenu">
+              <a href="#profile">My profile</a
+              ><a href="#settings">School settings</a
+              ><button type="button" id="topLogout">Log out</button>
+            </div>
+          </div>
+        </header>
 
-  <!-- ===== Header ===== -->
-  <header class="board-header">
-    <div class="header-left">
-      <h1 class="chalk-title">Dashboard</h1>
-      <p class="chalk-sub" id="dashSubtitle">Everything at a glance</p>
+        <section class="workspace" aria-labelledby="pageTitle">
+          <div class="page-intro">
+            <div>
+              <p class="eyebrow">
+                Tuesday, 23 September 2026 <span class="live-dot"></span> Live
+                overview
+              </p>
+              <h1 id="pageTitle">
+                Good morning, <span id="greetingName">Admin</span>
+                <span aria-hidden="true">👋</span>
+              </h1>
+              <p>Here's what's happening around your school today.</p>
+            </div>
+            <div class="status-pill">
+              <span></span>
+              <div>
+                <small>School status</small
+                ><strong>All systems operational</strong>
+              </div>
+            </div>
+          </div>
+
+          <section
+            class="section-block"
+            id="pulse"
+            aria-labelledby="pulseTitle"
+          >
+            <div class="section-heading">
+              <div>
+                <span class="section-kicker">At a glance</span>
+                <h2 id="pulseTitle">School Pulse</h2>
+              </div>
+              <button
+                class="text-button"
+                data-toast="Pulse details are being prepared"
+              >
+                View details <span>→</span>
+              </button>
+            </div>
+            <div class="pulse-grid">
+              <article class="pulse-card pulse-card--primary">
+                <div class="pulse-top">
+                  <span class="metric-icon">◉</span
+                  ><span class="trend trend--up">+4.8%</span>
+                </div>
+                <strong>1,248</strong><span>Students enrolled</span
+                ><small>Across 42 active classes</small>
+              </article>
+              <article class="pulse-card">
+                <div class="pulse-top">
+                  <span class="metric-icon">✓</span
+                  ><span class="trend trend--up">+2.1%</span>
+                </div>
+                <strong>94.2%</strong><span>Attendance today</span
+                ><small>Compared with yesterday</small>
+              </article>
+              <article class="pulse-card">
+                <div class="pulse-top">
+                  <span class="metric-icon">₵</span
+                  ><span class="trend trend--neutral">On track</span>
+                </div>
+                <strong>78%</strong><span>Fees collected</span
+                ><small>KSh 9.84M of KSh 12.6M</small>
+              </article>
+              <article class="pulse-card">
+                <div class="pulse-top">
+                  <span class="metric-icon metric-icon--alert">!</span
+                  ><span class="trend trend--alert">Needs review</span>
+                </div>
+                <strong>3</strong><span>Open alerts</span
+                ><small>2 warnings · 1 information</small>
+              </article>
+              <article class="pulse-card">
+                <div class="pulse-top">
+                  <span class="metric-icon">♙</span
+                  ><span class="trend trend--up">96%</span>
+                </div>
+                <strong>96%</strong><span>Teachers present</span
+                ><small>24 of 25 checked in</small>
+              </article>
+            </div>
+          </section>
+
+          <div class="priority-grid">
+            <section
+              class="panel attention-panel"
+              aria-labelledby="attentionTitle"
+            >
+              <div class="section-heading">
+                <div>
+                  <span class="section-kicker">Action queue</span>
+                  <h2 id="attentionTitle">Needs Your Attention</h2>
+                </div>
+                <span class="count-badge">3 open</span>
+              </div>
+              <div class="attention-list">
+                <button
+                  class="attention-item attention-item--warning"
+                  data-toast="Opening students with outstanding fees"
+                >
+                  <span class="attention-symbol">!</span
+                  ><span
+                    ><strong>12 students have outstanding fees</strong
+                    ><small>Finance · Updated 18 minutes ago</small></span
+                  ><b>→</b></button
+                ><button
+                  class="attention-item attention-item--warning"
+                  data-toast="Opening attendance review"
+                >
+                  <span class="attention-symbol">!</span
+                  ><span
+                    ><strong>3 teachers haven't submitted attendance</strong
+                    ><small>Attendance · Updated 27 minutes ago</small></span
+                  ><b>→</b></button
+                ><button
+                  class="attention-item attention-item--info"
+                  data-toast="Opening mathematics results"
+                >
+                  <span class="attention-symbol">i</span
+                  ><span
+                    ><strong>8 students scored below 40% in Mathematics</strong
+                    ><small>Academic performance · This term</small></span
+                  ><b>→</b></button
+                ><button
+                  class="attention-item attention-item--calm"
+                  data-toast="Opening event details"
+                >
+                  <span class="attention-symbol">•</span
+                  ><span
+                    ><strong>Staff meeting tomorrow at 8:00 AM</strong
+                    ><small>Calendar · Main conference room</small></span
+                  ><b>→</b>
+                </button>
+              </div>
+            </section>
+            <section class="panel actions-panel" aria-labelledby="actionsTitle">
+              <div class="section-heading">
+                <div>
+                  <span class="section-kicker">Shortcuts</span>
+                  <h2 id="actionsTitle">Quick Actions</h2>
+                </div>
+              </div>
+              <div class="action-grid">
+                <button class="quick-action" data-href="../students/index.html">
+                  <span>＋</span><strong>Add student</strong
+                  ><small>New enrolment</small></button
+                ><button
+                  class="quick-action"
+                  data-href="../teachers/index.html"
+                >
+                  <span>♙</span><strong>Add teacher</strong
+                  ><small>Staff directory</small></button
+                ><button
+                  class="quick-action"
+                  data-href="../attendance/index.html"
+                >
+                  <span>✓</span><strong>Mark attendance</strong
+                  ><small>Today's register</small></button
+                ><button class="quick-action" data-href="../fees/index.html">
+                  <span>₵</span><strong>Record payment</strong
+                  ><small>Update finance</small></button
+                ><button
+                  class="quick-action"
+                  data-href="../announcements/index.html"
+                >
+                  <span>◌</span><strong>Send announcement</strong
+                  ><small>Reach the school</small></button
+                ><button
+                  class="quick-action"
+                  data-toast="Report generation is ready for connection"
+                >
+                  <span>▥</span><strong>Generate report</strong
+                  ><small>Export insights</small>
+                </button>
+              </div>
+            </section>
+          </div>
+
+          <div class="analytics-grid">
+            <section
+              class="panel chart-panel"
+              aria-labelledby="attendanceTitle"
+            >
+              <div class="section-heading">
+                <div>
+                  <span class="section-kicker">Daily register</span>
+                  <h2 id="attendanceTitle">Today's Attendance</h2>
+                </div>
+                <button
+                  class="outline-button"
+                  data-href="../attendance/index.html"
+                >
+                  View attendance
+                </button>
+              </div>
+              <div class="chart-summary">
+                <strong>93.5%</strong
+                ><span class="trend trend--up">↑ 1.8% today</span
+                ><small>1,167 present of 1,248 students</small>
+              </div>
+              <div class="chart-wrap">
+                <canvas
+                  id="attendanceTrendChart"
+                  aria-label="Attendance trend chart"
+                ></canvas>
+              </div>
+              <div class="class-breakdown">
+                <div>
+                  <span>Grade 6</span><b>96%</b
+                  ><small>Present 96 · Absent 2 · Late 2</small
+                  ><i><em style="width: 96%"></em></i>
+                </div>
+                <div>
+                  <span>Grade 7</span><b>91%</b
+                  ><small>Present 91 · Absent 6 · Late 3</small
+                  ><i><em style="width: 91%"></em></i>
+                </div>
+                <div>
+                  <span>Grade 8</span><b>94%</b
+                  ><small>Present 94 · Absent 4 · Late 2</small
+                  ><i><em style="width: 94%"></em></i>
+                </div>
+                <div>
+                  <span>Grade 9</span><b>89%</b
+                  ><small>Present 89 · Absent 7 · Late 4</small
+                  ><i><em style="width: 89%"></em></i>
+                </div>
+              </div>
+            </section>
+            <section
+              class="panel chart-panel"
+              aria-labelledby="performanceTitle"
+            >
+              <div class="section-heading">
+                <div>
+                  <span class="section-kicker">Learning outcomes</span>
+                  <h2 id="performanceTitle">Academic Performance</h2>
+                </div>
+                <button class="outline-button" data-href="../exams/index.html">
+                  View results
+                </button>
+              </div>
+              <div class="chart-summary">
+                <strong>68.4%</strong
+                ><span class="trend trend--up">↑ 4.2% this term</span
+                ><small>Average score across assessed subjects</small>
+              </div>
+              <div class="performance-list">
+                <div>
+                  <span>Mathematics</span><b>74%</b
+                  ><i><em style="width: 74%"></em></i>
+                </div>
+                <div>
+                  <span>English</span><b>71%</b
+                  ><i><em style="width: 71%"></em></i>
+                </div>
+                <div>
+                  <span>Science</span><b>69%</b
+                  ><i><em style="width: 69%"></em></i>
+                </div>
+                <div>
+                  <span>Social Studies</span><b>66%</b
+                  ><i><em style="width: 66%"></em></i>
+                </div>
+              </div>
+              <div class="mini-bar-chart">
+                <canvas
+                  id="performanceChart"
+                  aria-label="Academic performance chart"
+                ></canvas>
+              </div>
+            </section>
+            <section class="panel finance-panel" aria-labelledby="financeTitle">
+              <div class="section-heading">
+                <div>
+                  <span class="section-kicker">Term finance</span>
+                  <h2 id="financeTitle">Finance Overview</h2>
+                </div>
+                <button class="outline-button" data-href="../fees/index.html">
+                  View finance
+                </button>
+              </div>
+              <div class="finance-stats">
+                <div>
+                  <small>Total expected</small><strong>KSh 12.6M</strong>
+                </div>
+                <div><small>Collected</small><strong>KSh 9.84M</strong></div>
+                <div><small>Outstanding</small><strong>KSh 2.76M</strong></div>
+                <div><small>Collection rate</small><strong>78%</strong></div>
+              </div>
+              <div class="finance-chart">
+                <canvas
+                  id="financeChart"
+                  aria-label="Fees collected over time"
+                ></canvas>
+              </div>
+              <div class="payment-list">
+                <h3>Recent payments</h3>
+                <div>
+                  <span class="payment-avatar">BK</span>
+                  <p>
+                    <strong>Brian Kamau</strong><small>Today · Grade 8A</small>
+                  </p>
+                  <b>KSh 15,000</b>
+                </div>
+                <div>
+                  <span class="payment-avatar">AM</span>
+                  <p>
+                    <strong>Aisha Mwangi</strong
+                    ><small>Yesterday · Grade 7</small>
+                  </p>
+                  <b>KSh 10,000</b>
+                </div>
+                <div>
+                  <span class="payment-avatar">KO</span>
+                  <p>
+                    <strong>Kevin Otieno</strong
+                    ><small>Yesterday · Grade 9B</small>
+                  </p>
+                  <b>KSh 7,500</b>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="lower-grid">
+            <section class="panel feed-panel" aria-labelledby="activityTitle">
+              <div class="section-heading">
+                <div>
+                  <span class="section-kicker">Live feed</span>
+                  <h2 id="activityTitle">Recent Activity</h2>
+                </div>
+                <button
+                  class="text-button"
+                  data-toast="Activity history is up to date"
+                >
+                  View all <span>→</span>
+                </button>
+              </div>
+              <div class="activity-feed">
+                <div>
+                  <time>10:42</time
+                  ><span class="feed-icon feed-icon--green">₵</span>
+                  <p>
+                    <strong>Payment received</strong
+                    ><small>Brian Kamau · Grade 8A</small>
+                  </p>
+                  <b>KSh 15,000</b>
+                </div>
+                <div>
+                  <time>10:35</time
+                  ><span class="feed-icon feed-icon--blue">＋</span>
+                  <p>
+                    <strong>Student enrolled</strong
+                    ><small>Aisha Mwangi · Grade 7</small>
+                  </p>
+                </div>
+                <div>
+                  <time>10:21</time
+                  ><span class="feed-icon feed-icon--yellow">✓</span>
+                  <p>
+                    <strong>Attendance submitted</strong
+                    ><small>Mr. Otieno · Grade 8B</small>
+                  </p>
+                </div>
+                <div>
+                  <time>09:54</time
+                  ><span class="feed-icon feed-icon--purple">◌</span>
+                  <p>
+                    <strong>Announcement published</strong
+                    ><small>“Sports Day Schedule”</small>
+                  </p>
+                </div>
+              </div>
+            </section>
+            <section
+              class="panel events-panel"
+              id="events"
+              aria-labelledby="eventsTitle"
+            >
+              <div class="section-heading">
+                <div>
+                  <span class="section-kicker">On the calendar</span>
+                  <h2 id="eventsTitle">Upcoming</h2>
+                </div>
+                <button
+                  class="text-button"
+                  data-toast="Opening school calendar"
+                >
+                  View calendar <span>→</span>
+                </button>
+              </div>
+              <div class="event-list">
+                <button data-toast="Mathematics Exam details">
+                  <time><b>24</b><small>SEP</small></time
+                  ><span
+                    ><strong>Mathematics Exam</strong
+                    ><small>Tomorrow · 8:00 AM</small></span
+                  ><b>→</b></button
+                ><button data-toast="Staff Meeting details">
+                  <time><b>25</b><small>SEP</small></time
+                  ><span
+                    ><strong>Staff Meeting</strong
+                    ><small>Thursday · 3:00 PM</small></span
+                  ><b>→</b></button
+                ><button data-toast="Sports Day details">
+                  <time><b>26</b><small>SEP</small></time
+                  ><span
+                    ><strong>Sports Day</strong
+                    ><small>Friday · All day</small></span
+                  ><b>→</b></button
+                ><button data-toast="Parent Meeting details">
+                  <time><b>29</b><small>SEP</small></time
+                  ><span
+                    ><strong>Parent Meeting</strong
+                    ><small>Monday · 9:00 AM</small></span
+                  ><b>→</b>
+                </button>
+              </div>
+            </section>
+            <section class="panel audit-panel" aria-labelledby="auditTitle">
+              <div class="section-heading">
+                <div>
+                  <span class="section-kicker">Traceability</span>
+                  <h2 id="auditTitle">System Activity</h2>
+                </div>
+                <button
+                  class="text-button"
+                  data-toast="Audit log is available to administrators"
+                >
+                  View audit log <span>→</span>
+                </button>
+              </div>
+              <ul>
+                <li>
+                  <span>↗</span>
+                  <p>
+                    <strong>Admin changed John's class</strong
+                    ><small>Grade 8A → Grade 8B · 12 min ago</small>
+                  </p>
+                </li>
+                <li>
+                  <span>＋</span>
+                  <p>
+                    <strong>Teacher added</strong
+                    ><small>Mr. Kamau · Mathematics · 28 min ago</small>
+                  </p>
+                </li>
+                <li>
+                  <span>₵</span>
+                  <p>
+                    <strong>Fee payment recorded</strong
+                    ><small>KSh 15,000 · Brian Kamau · 41 min ago</small>
+                  </p>
+                </li>
+              </ul>
+            </section>
+          </div>
+        </section>
+      </main>
     </div>
-    <div class="header-right" style="display:flex; align-items:center; gap:16px;">
-      <div class="date-chip" id="todayDate"></div>
-      <div id="userBadgeSlot"></div>
+
+    <div class="search-layer" id="searchLayer" aria-hidden="true">
+      <div class="search-box">
+        <button
+          class="search-close"
+          id="searchClose"
+          type="button"
+          aria-label="Close search"
+        >
+          ×</button
+        ><span class="section-kicker">Global search</span>
+        <h2>Find anything in Mandela SMS</h2>
+        <input
+          id="globalSearch"
+          type="search"
+          placeholder="Search students, teachers, fees, exams..."
+          autofocus
+        />
+        <div class="search-results" id="searchResults">
+          <p>Try “Brian”, “attendance”, or “fees”.</p>
+        </div>
+      </div>
     </div>
-  </header>
-
-  <!-- ===== Welcome Banner ===== -->
-  <section class="welcome-banner" id="welcomeBanner">
-    <div class="welcome-banner-text">
-      <h2 id="welcomeHeading">Welcome back!</h2>
-      <p id="welcomeSub">Here's what's happening at your school today.</p>
+    <div class="notification-panel" id="notificationPanel">
+      <div class="notification-head">
+        <div>
+          <span class="section-kicker">Inbox</span>
+          <h2>Notifications</h2>
+        </div>
+        <button id="markRead" type="button">Mark all read</button>
+      </div>
+      <button class="notification-item" data-notification>
+        <span class="attention-symbol">!</span
+        ><span
+          ><strong>Fee payment overdue</strong
+          ><small>12 students need a reminder</small></span
+        ></button
+      ><button class="notification-item" data-notification>
+        <span class="attention-symbol">◌</span
+        ><span
+          ><strong>New announcement</strong
+          ><small>Sports Day Schedule was published</small></span
+        ></button
+      ><button class="notification-item" data-notification>
+        <span class="attention-symbol">✓</span
+        ><span
+          ><strong>Attendance completed</strong
+          ><small>Grade 8A register is complete</small></span
+        >
+      </button>
     </div>
-    <div class="welcome-chips" id="welcomeChips"></div>
-  </section>
+    <div class="dashboard-toast" id="dashboardToast" role="status"></div>
 
-  <!-- ===== Quick Actions ===== -->
-  <section class="quick-actions" aria-label="Quick actions">
-    <button class="chalk-btn" data-action="mark-attendance" data-requires-role="admin,teacher">
-      <span class="btn-icon">✓</span> Mark Attendance
-    </button>
-    <button class="chalk-btn" data-action="record-payment" data-requires-role="admin">
-      <span class="btn-icon">₦</span> Record Payment
-    </button>
-    <button class="chalk-btn" data-action="new-announcement" data-requires-role="admin,teacher">
-      <span class="btn-icon">📣</span> New Announcement
-    </button>
-    <button class="chalk-btn chalk-btn--outline" data-action="export-report">
-      <span class="btn-icon">⇩</span> Export Report
-    </button>
-  </section>
-
-  <!-- ===== Main Grid ===== -->
-  <div class="dash-grid">
-
-    <!-- Left column -->
-    <div class="col col-left">
-
-      <!-- Announcements -->
-      <section class="panel" aria-labelledby="announcementsTitle">
-        <div class="panel-head">
-          <h2 id="announcementsTitle">Recent Announcements</h2>
-          <button class="panel-link" data-action="view-all-announcements">View all</button>
-        </div>
-        <ul class="announcement-list" id="announcementList">
-          <!-- injected by script.js -->
-        </ul>
-      </section>
-
-      <!-- Calendar -->
-      <section class="panel" aria-labelledby="calendarTitle">
-        <div class="panel-head">
-          <h2 id="calendarTitle">School Calendar</h2>
-          <div class="cal-nav">
-            <button class="cal-nav-btn" id="calPrev" aria-label="Previous month">‹</button>
-            <span id="calMonthLabel" class="cal-month-label"></span>
-            <button class="cal-nav-btn" id="calNext" aria-label="Next month">›</button>
-          </div>
-        </div>
-        <div class="calendar" id="calendarGrid"></div>
-        <ul class="cal-events" id="calEventList"></ul>
-      </section>
-
-    </div>
-
-    <!-- Right column -->
-    <div class="col col-right">
-
-      <!-- Pending Fees -->
-      <section class="panel" aria-labelledby="feesTitle">
-        <div class="panel-head">
-          <h2 id="feesTitle">Pending Fees</h2>
-          <span class="badge badge--pink" id="feesTotalBadge">KSh 0</span>
-        </div>
-        <table class="ledger-table" id="feesTable">
-          <thead>
-            <tr>
-              <th>Student</th>
-              <th>Class</th>
-              <th>Amount Due</th>
-              <th>Due Date</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="feesTableBody"></tbody>
-        </table>
-      </section>
-
-      <!-- Charts & Statistics -->
-      <section class="panel" aria-labelledby="statsTitle">
-        <div class="panel-head">
-          <h2 id="statsTitle">Charts &amp; Statistics</h2>
-        </div>
-
-        <div class="stat-cards">
-          <div class="stat-card">
-            <span class="stat-value" id="statTotalStudents">0</span>
-            <span class="stat-label">Students</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-value" id="statTotalTeachers">0</span>
-            <span class="stat-label">Teachers</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-value" id="statAttendanceRate">0%</span>
-            <span class="stat-label">Attendance Today</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-value" id="statFeesCollected">0%</span>
-            <span class="stat-label">Fees Collected</span>
-          </div>
-        </div>
-
-        <div class="chart-row">
-          <div class="chart-box">
-            <h3 class="chart-title">Enrollment by Class</h3>
-            <canvas id="enrollmentChart"></canvas>
-          </div>
-          <div class="chart-box">
-            <h3 class="chart-title">Attendance — Last 7 Days</h3>
-            <canvas id="attendanceChart"></canvas>
-          </div>
-        </div>
-      </section>
-
-    </div>
-  </div>
-</div>
-  </main>
-</div>
-
-<script src="../shared/auth-client.js"></script>
-<script src="../shared/auth-guard.js"></script>
-<script src="../shared/sidebar.js"></script>
-<script src="../shared/vendor/chart.umd.js"></script>
-<script src="script.js"></script>
-</body>
+    <script src="../shared/auth-client.js"></script>
+    <script src="../shared/auth-guard.js"></script>
+    <script src="../shared/vendor/chart.umd.js"></script>
+    <script src="script.js"></script>
+  </body>
 </html>

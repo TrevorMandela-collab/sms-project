@@ -24,6 +24,15 @@
   }
 
   document.addEventListener('DOMContentLoaded', () => {
+    const connectionBanner = document.createElement('div');
+    connectionBanner.className = 'connection-banner';
+    connectionBanner.setAttribute('role', 'status');
+    connectionBanner.textContent = 'Connection lost. Trying to reconnect...';
+    document.body.appendChild(connectionBanner);
+
+    window.addEventListener('sms:connection-lost', () => connectionBanner.classList.add('is-visible'));
+    window.addEventListener('sms:connection-restored', () => connectionBanner.classList.remove('is-visible'));
+
     const user = SmsAuth.getUser();
     const slot = document.getElementById('userBadgeSlot');
 

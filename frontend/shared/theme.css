@@ -225,6 +225,25 @@ body::before {
   font-size: 0.85rem;
 }
 
+.connection-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  z-index: 100;
+  transform: translate(-50%, 16px);
+  opacity: 0;
+  pointer-events: none;
+  background: var(--chalk-pink);
+  color: var(--board-bg-dark);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.22);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.connection-banner.is-visible { opacity: 1; transform: translate(-50%, 0); }
+
 .modal-overlay {
   position: fixed;
   inset: 0;

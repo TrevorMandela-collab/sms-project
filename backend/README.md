@@ -110,6 +110,24 @@ Collections: `students`, `teachers`, `subjects`, `classes`, `assignments`,
 rather than through the generic CRUD shape, since generating a code has
 its own logic (random code, expiry, single-use).
 
+### List queries and errors
+
+CRUD list endpoints preserve their original array response by default. Where
+the route declares the relevant fields, they also support `search`,
+`filter[field]`, `sort` (prefix with `-` for descending), and opt-in
+pagination:
+
+```text
+GET /api/students?search=brian&filter[class]=Grade%208&sort=-name&page=1&limit=25
+```
+
+When `page` or `limit` is supplied, the response is `{ data, meta }` with
+`page`, `limit`, `total`, and `pages`. API errors use this shape:
+
+```json
+{ "success": false, "error": { "code": "INVALID_EXAM_SCORE", "message": "Score must be between zero and the maximum score." } }
+```
+
 ### Record shapes (suggested — the API doesn't enforce a schema)
 
 - **students**: `{ name, class, dateOfBirth, guardianContact }`
