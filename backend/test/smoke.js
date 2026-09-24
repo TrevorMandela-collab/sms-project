@@ -1,6 +1,7 @@
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
+const Database = require("better-sqlite3");
 const { spawn } = require("child_process");
 
 const port = 4311;
@@ -111,6 +112,41 @@ async function run() {
     assert.equal(invalidFee.status, 400, "negative fees must be rejected");
     const feeError = await invalidFee.json();
     assert.equal(feeError.error.code, "INVALID_FEE_AMOUNT");
+
+    const forgotResponse = await request("/auth/forgot-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "smoke@example.test" }),
+    });
+    assert.equal(forgotResponse.status, 200, "password reset request should be accepted");
+    const resetDatabase = new Database(databasePath);
+    const resetRecords = resetDatabase
+      .prepare("SELECT * FROM store WHERE collection = ?")
+      .all("password-resets");
+    assert.equal(resetRecords.length, 1, "a reset token should be created");
+    const resetToken = JSON.parse(resetRecords[0].data).token;
+    resetDatabase.close();
+
+    const passwordReset = await request("/auth/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: resetToken, password: "newSecret456" }),
+    });
+    assert.equal(passwordReset.status, 200, "password reset should succeed");
+
+    const oldLogin = await request("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "smoke@example.test", password: "secret123" }),
+    });
+    assert.equal(oldLogin.status, 401, "old password should no longer work");
+
+    const newLogin = await request("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "smoke@example.test", password: "newSecret456" }),
+    });
+    assert.equal(newLogin.status, 200, "new password should work");
 
     const firstAttendance = await request("/attendance", {
       method: "POST",

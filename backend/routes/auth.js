@@ -1,4 +1,5 @@
 const express = require("express");
+const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const { v4: uuidv4 } = require("uuid");
 const db = require("../utils/db");
@@ -288,6 +289,122 @@ router.post(
     const token = signToken(user);
     const { passwordHash: _, ...safeUser } = user;
     res.json({ user: safeUser, token });
+  }),
+);
+
+/**
+ * POST /api/auth/forgot-password
+ * Creates a one-time reset token for an email address, without revealing
+ * whether the account exists. This is intentionally generic for security.
+ */
+router.post(
+  "/forgot-password",
+  safe(async (req, res) => {
+    const { email } = req.body || {};
+    const normalized = typeof email === "string" ? email.trim().toLowerCase() : "";
+
+    if (!normalized) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: "MISSING_EMAIL",
+          message: "Enter the email address for your account.",
+        },
+      });
+    }
+
+    const users = await db.readAll(COLLECTION);
+    const user = users.find((candidate) => candidate.email.toLowerCase() === normalized);
+    if (!user) {
+      return res.json({
+        success: true,
+        message: "If an account exists for that email, a reset link has been sent.",
+      });
+    }
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const resetRecord = {
+      id: uuidv4(),
+      userId: user.id,
+      token,
+      createdAt: new Date().toISOString(),
+      expiresAt,
+      used: false,
+    };
+
+    const existingResets = await db.readAll("password-resets");
+    const oldTokens = existingResets.filter((record) => record.userId === user.id);
+    for (const oldToken of oldTokens) {
+      await db.update("password-resets", oldToken.id, { used: true, usedAt: new Date().toISOString() });
+    }
+
+    await db.insert("password-resets", resetRecord);
+
+    return res.json({
+      success: true,
+      message: "If an account exists for that email, a reset link has been sent.",
+      token,
+    });
+  }),
+);
+
+/**
+ * POST /api/auth/reset-password
+ * Uses a one-time token to set a new password.
+ */
+router.post(
+  "/reset-password",
+  safe(async (req, res) => {
+    const { token, password } = req.body || {};
+
+    if (!token || !password || String(password).length < 6) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: "INVALID_RESET_REQUEST",
+          message: "A valid reset token and a password with at least 6 characters are required.",
+        },
+      });
+    }
+
+    const resetTokens = await db.readAll("password-resets");
+    const resetRequest = resetTokens.find(
+      (record) => record.token === String(token) && !record.used && new Date(record.expiresAt) > new Date(),
+    );
+
+    if (!resetRequest) {
+      return res.status(410).json({
+        success: false,
+        error: {
+          code: "RESET_TOKEN_INVALID",
+          message: "This password reset link is invalid or has expired.",
+        },
+      });
+    }
+
+    const user = await db.findById(COLLECTION, resetRequest.userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: "USER_NOT_FOUND",
+          message: "The account for this reset request no longer exists.",
+        },
+      });
+    }
+
+    const passwordHash = await bcrypt.hash(String(password), 10);
+    await db.update(COLLECTION, user.id, { passwordHash });
+    await db.update("password-resets", resetRequest.id, {
+      used: true,
+      usedAt: new Date().toISOString(),
+    });
+
+    return res.json({
+      success: true,
+      message: "Your password has been updated successfully.",
+    });
   }),
 );
 
