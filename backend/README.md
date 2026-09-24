@@ -125,7 +125,13 @@ When `page` or `limit` is supplied, the response is `{ data, meta }` with
 `page`, `limit`, `total`, and `pages`. API errors use this shape:
 
 ```json
-{ "success": false, "error": { "code": "INVALID_EXAM_SCORE", "message": "Score must be between zero and the maximum score." } }
+{
+  "success": false,
+  "error": {
+    "code": "INVALID_EXAM_SCORE",
+    "message": "Score must be between zero and the maximum score."
+  }
+}
 ```
 
 ### Record shapes (suggested — the API doesn't enforce a schema)
@@ -163,3 +169,16 @@ This backend is ready for the frontend modules to call instead of
 `localStorage`. Each frontend module's `readStore()`/`writeStore()` helper
 functions can be swapped for `fetch()` calls to these endpoints, sending the
 JWT in the `Authorization` header.
+
+## Local verification
+
+Run the API smoke tests against a temporary SQLite database:
+
+```bash
+cd backend
+npm test
+```
+
+For browser testing against the local API, set `localStorage.sms_api_base` to
+`http://localhost:4000/api` before signing in. The shared frontend client
+otherwise uses the deployed API URL.

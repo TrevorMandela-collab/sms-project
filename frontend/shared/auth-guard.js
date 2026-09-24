@@ -11,30 +11,34 @@
 
 (function () {
   if (!SmsAuth.isLoggedIn()) {
-    window.location.href = '../login/index.html';
+    window.location.href = "../login/index.html";
     return;
   }
 
   function getInitials(name) {
-    if (!name) return '?';
+    if (!name) return "?";
     const parts = name.trim().split(/\s+/);
-    const first = parts[0]?.[0] || '';
-    const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+    const first = parts[0]?.[0] || "";
+    const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
     return (first + last).toUpperCase();
   }
 
-  document.addEventListener('DOMContentLoaded', () => {
-    const connectionBanner = document.createElement('div');
-    connectionBanner.className = 'connection-banner';
-    connectionBanner.setAttribute('role', 'status');
-    connectionBanner.textContent = 'Connection lost. Trying to reconnect...';
+  document.addEventListener("DOMContentLoaded", () => {
+    const connectionBanner = document.createElement("div");
+    connectionBanner.className = "connection-banner";
+    connectionBanner.setAttribute("role", "status");
+    connectionBanner.textContent = "Connection lost. Trying to reconnect...";
     document.body.appendChild(connectionBanner);
 
-    window.addEventListener('sms:connection-lost', () => connectionBanner.classList.add('is-visible'));
-    window.addEventListener('sms:connection-restored', () => connectionBanner.classList.remove('is-visible'));
+    window.addEventListener("sms:connection-lost", () =>
+      connectionBanner.classList.add("is-visible"),
+    );
+    window.addEventListener("sms:connection-restored", () =>
+      connectionBanner.classList.remove("is-visible"),
+    );
 
     const user = SmsAuth.getUser();
-    const slot = document.getElementById('userBadgeSlot');
+    const slot = document.getElementById("userBadgeSlot");
 
     if (slot && user) {
       slot.innerHTML = `
@@ -47,7 +51,7 @@
               <span class="avatar-circle avatar-circle--lg">${getInitials(user.name)}</span>
               <div>
                 <div class="avatar-dropdown-name">${user.name}</div>
-                <div class="avatar-dropdown-email">${user.email || ''}</div>
+                <div class="avatar-dropdown-email">${user.email || ""}</div>
               </div>
             </div>
             <div class="avatar-dropdown-role">
@@ -58,30 +62,32 @@
         </div>
       `;
 
-      const trigger = document.getElementById('avatarTrigger');
-      const dropdown = document.getElementById('avatarDropdown');
+      const trigger = document.getElementById("avatarTrigger");
+      const dropdown = document.getElementById("avatarDropdown");
 
-      trigger.addEventListener('click', (e) => {
+      trigger.addEventListener("click", (e) => {
         e.stopPropagation();
-        const isOpen = dropdown.classList.toggle('is-open');
-        trigger.setAttribute('aria-expanded', String(isOpen));
+        const isOpen = dropdown.classList.toggle("is-open");
+        trigger.setAttribute("aria-expanded", String(isOpen));
       });
 
-      document.addEventListener('click', (e) => {
+      document.addEventListener("click", (e) => {
         if (!slot.contains(e.target)) {
-          dropdown.classList.remove('is-open');
-          trigger.setAttribute('aria-expanded', 'false');
+          dropdown.classList.remove("is-open");
+          trigger.setAttribute("aria-expanded", "false");
         }
       });
 
-      document.getElementById('logoutBtn').addEventListener('click', () => SmsAuth.logout());
+      document
+        .getElementById("logoutBtn")
+        .addEventListener("click", () => SmsAuth.logout());
     }
 
     // Role-gated UI: hide anything the current role isn't allowed to see/use
-    document.querySelectorAll('[data-requires-role]').forEach(el => {
-      const allowed = el.dataset.requiresRole.split(',').map(r => r.trim());
+    document.querySelectorAll("[data-requires-role]").forEach((el) => {
+      const allowed = el.dataset.requiresRole.split(",").map((r) => r.trim());
       if (!allowed.includes(user.role)) {
-        el.style.display = 'none';
+        el.style.display = "none";
       }
     });
   });

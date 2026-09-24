@@ -11,6 +11,7 @@ let studentsState = [];
 let currentPage = 1;
 let searchTerm = '';
 let statusFilter = 'all';
+const linkedStudentId = new URLSearchParams(window.location.search).get('studentId');
 let isLoading = true;
 let loadError = null;
 
@@ -47,10 +48,11 @@ function populateStudentSelect() {
 /* ---------- Derived views ---------- */
 function getFilteredFees() {
   return feesState.filter(f => {
+    const matchesStudent = !linkedStudentId || f.studentId === linkedStudentId;
     const name = f.studentName || '';
     const matchesSearch = name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || f.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    return matchesStudent && matchesSearch && matchesStatus;
   });
 }
 

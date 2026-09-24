@@ -32,7 +32,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Kalam', cursive;
+  font-family: var(--font-display);
   font-weight: 700;
   font-size: 1.1rem;
   cursor: pointer;
@@ -44,7 +44,7 @@
 .server-icon.is-active {
   border-radius: 16px;
   background: var(--chalk-yellow);
-  color: #1e2f26;
+  color: var(--board-bg-dark);
   border-style: solid;
 }
 
@@ -67,21 +67,21 @@
 .chat-thread {
   display: flex;
   flex-direction: column;
-  border: 1px dashed rgba(255, 255, 255, 0.25);
+  border: 1px solid var(--rail-line);
   border-radius: 10px;
   overflow: hidden;
-  background: rgba(0, 0, 0, 0.15);
+  background: #fff;
 }
 
 .chat-thread-header {
   padding: 12px 16px;
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.2);
+  border-bottom: 1px solid var(--rail-line);
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
-.chat-thread-title { font-family: 'Kalam', cursive; font-size: 1.1rem; font-weight: 700; }
+.chat-thread-title { font-family: var(--font-display); font-size: 1.1rem; font-weight: 700; }
 
 .chat-thread-settings-btn {
   background: none;
@@ -109,7 +109,7 @@
   font-size: 0.72rem;
   opacity: 0.65;
   margin-bottom: 2px;
-  font-family: 'Courier Prime', monospace;
+  font-family: var(--font-mono);
 }
 
 .chat-message-bubble {
@@ -122,7 +122,7 @@
 
 .chat-message.is-own .chat-message-bubble {
   background: var(--chalk-yellow);
-  color: #1e2f26;
+  color: var(--board-bg-dark);
 }
 
 .chat-message { position: relative; }
@@ -270,7 +270,7 @@
 }
 
 .chat-overlay-card {
-  background: #1e2f26;
+  background: #fff;
   border: 1px dashed rgba(255, 255, 255, 0.3);
   border-radius: 12px;
   padding: 24px;
@@ -280,7 +280,7 @@
 }
 
 .chat-overlay-card h3 {
-  font-family: 'Kalam', cursive;
+  font-family: var(--font-display);
   margin: 0 0 16px;
 }
 
@@ -289,9 +289,21 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  font-family: 'Courier Prime', monospace;
+  font-family: var(--font-mono);
   font-size: 1rem;
   padding: 8px 12px;
   border: 1px dashed rgba(255, 255, 255, 0.3);
   border-radius: 8px;
 }
+
+/* Light workspace treatment shared by the other Mandela modules. */
+.server-icon, .server-rail-btn { background: #f4f7f8; border-color: var(--rail-line-strong); color: var(--chalk-white); }
+.server-icon:hover, .server-rail-btn:hover { background: var(--accent-soft, #e3f2f0); }
+.chat-message-bubble, .chat-action-btn, .chat-reaction-pill { background: #f4f7f8; border-color: var(--rail-line); color: var(--chalk-white); }
+.chat-message.is-deleted .chat-message-bubble--deleted { border-color: var(--rail-line); }
+.chat-action-btn:hover, .chat-reaction-pill:hover { background: #e3f2f0; }
+.chat-reaction-picker { background: #fff; border-color: var(--rail-line); }
+.chat-context-bar { border-color: var(--rail-line); background: #f7f9fa; }
+.chat-input-row { border-color: var(--rail-line); }
+.chat-input-row input { border-color: var(--rail-line-strong); background: #fff; color: var(--chalk-white); }
+.chat-overlay-card { border-color: var(--rail-line-strong); box-shadow: 0 16px 40px rgba(27,48,61,.14); }

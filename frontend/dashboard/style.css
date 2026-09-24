@@ -1245,3 +1245,66 @@ button {
     padding: 23px 18px;
   }
 }
+
+/* Dashboard motion choreography */
+@keyframes dashboard-rise {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes dashboard-slide {
+  from { opacity: 0; transform: translateX(-16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes dashboard-status {
+  0%, 100% { box-shadow: 0 4px 16px rgba(27,48,61,.035); }
+  50% { box-shadow: 0 4px 16px rgba(35,124,120,.14), 0 0 0 5px rgba(35,124,120,.06); }
+}
+@keyframes dashboard-number {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes dashboard-sheen {
+  from { background-position: 150% 0; }
+  to { background-position: -150% 0; }
+}
+
+.topbar { animation: dashboard-slide .48s ease both; }
+.workspace > .page-intro { animation: dashboard-rise .55s .08s cubic-bezier(.22,.8,.3,1) both; }
+.status-pill { animation: dashboard-status 3.2s 1.2s ease-in-out 2; }
+.pulse-card { animation: dashboard-rise .5s cubic-bezier(.22,.8,.3,1) both; }
+.pulse-card:nth-child(1) { animation-delay: .18s; }
+.pulse-card:nth-child(2) { animation-delay: .24s; }
+.pulse-card:nth-child(3) { animation-delay: .3s; }
+.pulse-card:nth-child(4) { animation-delay: .36s; }
+.pulse-card:nth-child(5) { animation-delay: .42s; }
+.pulse-card > strong { animation: dashboard-number .45s .48s ease both; }
+.pulse-card:hover { transform: translateY(-5px); border-color: #b6d8d4; box-shadow: 0 15px 25px rgba(27,48,61,.1); }
+.pulse-card { transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease; }
+.priority-grid > .panel, .analytics-grid > .panel, .lower-grid > .panel { animation: dashboard-rise .55s cubic-bezier(.22,.8,.3,1) both; }
+.priority-grid > .panel:nth-child(1) { animation-delay: .42s; }
+.priority-grid > .panel:nth-child(2) { animation-delay: .5s; }
+.analytics-grid > .panel:nth-child(1) { animation-delay: .58s; }
+.analytics-grid > .panel:nth-child(2) { animation-delay: .64s; }
+.analytics-grid > .panel:nth-child(3) { animation-delay: .7s; }
+.lower-grid > .panel:nth-child(1) { animation-delay: .76s; }
+.lower-grid > .panel:nth-child(2) { animation-delay: .82s; }
+.lower-grid > .panel:nth-child(3) { animation-delay: .88s; }
+.attention-item { transition: transform .18s ease, background .18s ease, padding-left .18s ease; }
+.attention-item:hover { transform: translateX(4px); padding-left: 9px; }
+.quick-action { transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background .18s ease; }
+.quick-action:hover { transform: translateY(-4px) scale(1.015); }
+.chart-panel canvas { animation: dashboard-rise .7s .85s ease both; }
+.payment-list > div, .activity-feed > div, .event-list button, .audit-panel li { animation: dashboard-slide .4s both; }
+.payment-list > div:nth-child(2), .activity-feed > div:nth-child(1), .event-list button:nth-child(1), .audit-panel li:nth-child(1) { animation-delay: .78s; }
+.payment-list > div:nth-child(3), .activity-feed > div:nth-child(2), .event-list button:nth-child(2), .audit-panel li:nth-child(2) { animation-delay: .84s; }
+.payment-list > div:nth-child(4), .activity-feed > div:nth-child(3), .event-list button:nth-child(3), .audit-panel li:nth-child(3) { animation-delay: .9s; }
+.payment-list > div:nth-child(5), .activity-feed > div:nth-child(4), .event-list button:nth-child(4) { animation-delay: .96s; }
+.search-layer.is-open .search-box { animation: dashboard-rise .26s cubic-bezier(.22,.8,.3,1) both; }
+.notification-panel.is-open { animation: dashboard-rise .22s cubic-bezier(.22,.8,.3,1) both; }
+.dashboard-toast.is-visible { animation: dashboard-rise .28s ease both; }
+.outline-button:active, .icon-action:active, .top-profile:active { transform: scale(.95); }
+.outline-button, .icon-action, .top-profile { transition: transform .16s ease, background .16s ease, border-color .16s ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-card:hover, .quick-action:hover, .attention-item:hover { transform: none; }
+}

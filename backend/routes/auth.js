@@ -18,7 +18,10 @@ function safe(handler) {
       console.error("[auth] request failed:", err);
       res.status(500).json({
         success: false,
-        error: { code: "INTERNAL_ERROR", message: "The server could not complete that request." },
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "The server could not complete that request.",
+        },
       });
     });
   };
@@ -48,13 +51,19 @@ router.post(
     if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
       return res.status(400).json({
         success: false,
-        error: { code: "INVALID_EMAIL", message: "Enter a valid email address." },
+        error: {
+          code: "INVALID_EMAIL",
+          message: "Enter a valid email address.",
+        },
       });
     }
     if (password.length < 6) {
       return res.status(400).json({
         success: false,
-        error: { code: "WEAK_PASSWORD", message: "Password must be at least 6 characters." },
+        error: {
+          code: "WEAK_PASSWORD",
+          message: "Password must be at least 6 characters.",
+        },
       });
     }
 
@@ -68,12 +77,9 @@ router.post(
         .json({ error: "The first account must be an admin account." });
     }
     if (isFirstUser && !schoolName?.trim()) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "schoolName is required when creating the first admin account.",
-        });
+      return res.status(400).json({
+        error: "schoolName is required when creating the first admin account.",
+      });
     }
 
     // After the first (bootstrap) admin account exists, lock registration
@@ -82,12 +88,10 @@ router.post(
       const header = req.headers.authorization || "";
       const token = header.startsWith("Bearer ") ? header.slice(7) : null;
       if (!token) {
-        return res
-          .status(403)
-          .json({
-            error:
-              "Only an admin can create new accounts. Log in as admin first.",
-          });
+        return res.status(403).json({
+          error:
+            "Only an admin can create new accounts. Log in as admin first.",
+        });
       }
       try {
         const jwt = require("jsonwebtoken");
@@ -177,12 +181,10 @@ router.post(
         .json({ error: "This invite code has already been used." });
     }
     if (invite.expiresAt && new Date(invite.expiresAt) < new Date()) {
-      return res
-        .status(410)
-        .json({
-          error:
-            "This invite code has expired. Ask your school admin for a new one.",
-        });
+      return res.status(410).json({
+        error:
+          "This invite code has expired. Ask your school admin for a new one.",
+      });
     }
 
     // Older invite codes (created before roles were supported) are always students.
@@ -196,11 +198,9 @@ router.post(
     if (role === "student") {
       const student = await db.findById("students", invite.studentId);
       if (!student) {
-        return res
-          .status(404)
-          .json({
-            error: "The student record for this code no longer exists.",
-          });
+        return res.status(404).json({
+          error: "The student record for this code no longer exists.",
+        });
       }
     }
 
@@ -272,11 +272,9 @@ router.post(
         const untilMsg = user.suspendedUntil
           ? ` until ${new Date(user.suspendedUntil).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`
           : "";
-        return res
-          .status(403)
-          .json({
-            error: `This account has been suspended${untilMsg}. Contact your school admin.`,
-          });
+        return res.status(403).json({
+          error: `This account has been suspended${untilMsg}. Contact your school admin.`,
+        });
       }
       // The suspension's end date has passed — auto-reactivate before issuing a token.
       await db.update(COLLECTION, user.id, {
@@ -398,11 +396,9 @@ router.patch(
   requireRole("admin"),
   safe(async (req, res) => {
     if (req.params.id === req.user.id) {
-      return res
-        .status(400)
-        .json({
-          error: "You can't suspend your own account while logged in as it.",
-        });
+      return res.status(400).json({
+        error: "You can't suspend your own account while logged in as it.",
+      });
     }
     const { status, suspendedUntil } = req.body;
     if (!["active", "suspended"].includes(status)) {
@@ -431,11 +427,9 @@ router.delete(
   requireRole("admin"),
   safe(async (req, res) => {
     if (req.params.id === req.user.id) {
-      return res
-        .status(400)
-        .json({
-          error: "You can't delete your own account while logged in as it.",
-        });
+      return res.status(400).json({
+        error: "You can't delete your own account while logged in as it.",
+      });
     }
     const removed = await db.remove(COLLECTION, req.params.id);
     if (!removed) return res.status(404).json({ error: "User not found." });

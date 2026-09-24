@@ -11,6 +11,7 @@ let studentsState = [];
 let currentPage = 1;
 let searchTerm = '';
 let termFilter = 'all';
+const linkedStudentId = new URLSearchParams(window.location.search).get('studentId');
 let isLoading = true;
 let loadError = null;
 
@@ -63,6 +64,7 @@ function populateTermFilter() {
 function getFiltered() {
   return examsState
     .filter(e => {
+      if (linkedStudentId && e.studentId !== linkedStudentId) return false;
       const haystack = `${e.studentName || ''} ${e.subject || ''}`.toLowerCase();
       return haystack.includes(searchTerm.toLowerCase());
     })

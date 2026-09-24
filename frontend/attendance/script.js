@@ -9,6 +9,7 @@ let allStudents = [];
 let allAttendance = [];
 let currentStatuses = {}; // studentId -> status, for the currently selected class/date
 let existingRecordIds = {}; // studentId -> attendance record id (for updates vs creates)
+const linkedStudentId = new URLSearchParams(window.location.search).get('studentId');
 
 const user = SmsAuth.getUser();
 const canMark = user && ['admin', 'teacher'].includes(user.role);
@@ -25,6 +26,10 @@ async function init() {
 
   if (canMark) {
     populateClassSelect();
+    if (linkedStudentId) {
+      const linkedStudent = allStudents.find(student => student.id === linkedStudentId);
+      if (linkedStudent?.class) document.getElementById('classSelect').value = linkedStudent.class;
+    }
     setDefaultDate();
     document.getElementById('classSelect').addEventListener('change', renderMarkingTable);
     document.getElementById('dateSelect').addEventListener('change', renderMarkingTable);
@@ -165,6 +170,7 @@ async function loadHistory() {
 
   try {
     allAttendance = await SmsAuth.apiFetch('/attendance');
+      if (linkedStudentId) allAttendance = allAttendance.filter(record => record.studentId === linkedStudentId);
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="5"><div class="error-state">Couldn't load history: ${err.message}</div></td></tr>`;
     return;

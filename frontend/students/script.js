@@ -87,6 +87,9 @@ function renderTable() {
         <td>
           ${canManage ? `
             <div class="row-actions">
+              <button class="icon-btn" data-student-link="attendance" data-student-id="${s.id}">Attendance</button>
+              <button class="icon-btn" data-student-link="fees" data-student-id="${s.id}">Fees</button>
+              <button class="icon-btn" data-student-link="results" data-student-id="${s.id}">Results</button>
               <button class="icon-btn" data-invite="${s.id}">Login</button>
               <button class="icon-btn" data-edit="${s.id}">Edit</button>
               <button class="icon-btn danger" data-delete="${s.id}">Delete</button>
@@ -107,6 +110,12 @@ function renderTable() {
   });
   tbody.querySelectorAll('[data-invite]').forEach(btn => {
     btn.addEventListener('click', () => openInviteModal(btn.dataset.invite));
+  });
+  tbody.querySelectorAll('[data-student-link]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const paths = { attendance: '../attendance/index.html', fees: '../fees/index.html', results: '../exams/index.html' };
+      window.location.href = `${paths[btn.dataset.studentLink]}?studentId=${encodeURIComponent(btn.dataset.studentId)}`;
+    });
   });
 }
 
@@ -169,7 +178,7 @@ form.addEventListener('submit', async (e) => {
     closeModal();
     await loadStudents();
   } catch (err) {
-    alert(`Couldn't save: ${err.message}`);
+    SmsUI.toast(`Couldn't save student: ${err.message}`, 'error');
   } finally {
     submitBtn.disabled = false;
     submitBtn.textContent = 'Save';
@@ -177,12 +186,18 @@ form.addEventListener('submit', async (e) => {
 });
 
 async function deleteStudent(id) {
-  if (!confirm('Delete this student record? This cannot be undone.')) return;
+  const student = studentsState.find(record => record.id === id);
+  const confirmed = await SmsUI.confirm(
+    `This will permanently delete ${student?.name || 'this student'} and remove the record from the roster. This cannot be undone.`,
+    { title: 'Delete student record?', confirmLabel: 'Delete student', danger: true },
+  );
+  if (!confirmed) return;
   try {
     await SmsAuth.apiFetch(`/students/${id}`, { method: 'DELETE' });
+    SmsUI.toast('Student record deleted.', 'success');
     await loadStudents();
   } catch (err) {
-    alert(`Couldn't delete: ${err.message}`);
+    SmsUI.toast(`Couldn't delete student: ${err.message}`, 'error');
   }
 }
 
@@ -270,7 +285,7 @@ document.getElementById('generateInviteBtn').addEventListener('click', async () 
     const invite = await SmsAuth.apiFetch('/invite-codes', { method: 'POST', body: { role: 'student', studentId: inviteStudentId } });
     showInviteCode(invite);
   } catch (err) {
-    alert(`Couldn't generate a code: ${err.message}`);
+    SmsUI.toast(`Couldn't generate a code: ${err.message}`, 'error');
   } finally {
     btn.disabled = false;
     btn.textContent = 'Generate New Code';
