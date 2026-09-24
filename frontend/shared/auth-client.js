@@ -31,7 +31,7 @@ const SmsAuth = {
   },
 
   setApiBase(url) {
-    const normalized = String(url || '').replace(/\/$/, '');
+    const normalized = String(url || "").replace(/\/$/, "");
     if (!normalized) localStorage.removeItem(API_BASE_KEY);
     else localStorage.setItem(API_BASE_KEY, normalized);
   },
@@ -178,46 +178,60 @@ const SmsAuth = {
 };
 
 const SmsUI = {
-  toast(message, type = 'info') {
-    let host = document.getElementById('smsToastHost');
+  toast(message, type = "info") {
+    let host = document.getElementById("smsToastHost");
     if (!host) {
-      host = document.createElement('div');
-      host.id = 'smsToastHost';
-      host.className = 'sms-toast-host';
+      host = document.createElement("div");
+      host.id = "smsToastHost";
+      host.className = "sms-toast-host";
       document.body.appendChild(host);
     }
-    const toast = document.createElement('div');
+    const toast = document.createElement("div");
     toast.className = `sms-toast sms-toast--${type}`;
-    toast.setAttribute('role', 'status');
+    toast.setAttribute("role", "status");
     toast.textContent = message;
     host.appendChild(toast);
-    requestAnimationFrame(() => toast.classList.add('is-visible'));
+    requestAnimationFrame(() => toast.classList.add("is-visible"));
     setTimeout(() => {
-      toast.classList.remove('is-visible');
+      toast.classList.remove("is-visible");
       setTimeout(() => toast.remove(), 220);
     }, 3200);
   },
 
-  confirm(message, { title = 'Please confirm', confirmLabel = 'Continue', danger = false } = {}) {
-    return new Promise(resolve => {
-      const overlay = document.createElement('div');
-      overlay.className = 'sms-confirm-overlay';
+  confirm(
+    message,
+    {
+      title = "Please confirm",
+      confirmLabel = "Continue",
+      danger = false,
+    } = {},
+  ) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "sms-confirm-overlay";
       overlay.innerHTML = `<div class="sms-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="smsConfirmTitle">
         <h2 id="smsConfirmTitle"></h2><p></p><div class="sms-confirm-actions">
           <button type="button" class="sms-confirm-cancel">Cancel</button>
           <button type="button" class="sms-confirm-submit"></button>
         </div></div>`;
-      overlay.querySelector('h2').textContent = title;
-      overlay.querySelector('p').textContent = message;
-      const submit = overlay.querySelector('.sms-confirm-submit');
+      overlay.querySelector("h2").textContent = title;
+      overlay.querySelector("p").textContent = message;
+      const submit = overlay.querySelector(".sms-confirm-submit");
       submit.textContent = confirmLabel;
-      if (danger) submit.classList.add('is-danger');
-      const finish = value => { overlay.remove(); resolve(value); };
-      overlay.querySelector('.sms-confirm-cancel').addEventListener('click', () => finish(false));
-      submit.addEventListener('click', () => finish(true));
-      overlay.addEventListener('click', event => { if (event.target === overlay) finish(false); });
+      if (danger) submit.classList.add("is-danger");
+      const finish = (value) => {
+        overlay.remove();
+        resolve(value);
+      };
+      overlay
+        .querySelector(".sms-confirm-cancel")
+        .addEventListener("click", () => finish(false));
+      submit.addEventListener("click", () => finish(true));
+      overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) finish(false);
+      });
       document.body.appendChild(overlay);
-      requestAnimationFrame(() => overlay.classList.add('is-visible'));
+      requestAnimationFrame(() => overlay.classList.add("is-visible"));
       submit.focus();
     });
   },
