@@ -31,7 +31,7 @@ if (isAdmin) {
 
 /* ---------- Live updates (WebSocket) ---------- */
 function connectSocket() {
-  const httpBase = SMS_API_BASE.replace(/\/api\/?$/, '');
+  const httpBase = SmsAuth.getApiBase().replace(/\/api\/?$/, '');
   const wsBase = httpBase.replace(/^http/, 'ws');
   const token = SmsAuth.getToken();
   if (!token) return;
