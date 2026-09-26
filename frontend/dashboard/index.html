@@ -17,7 +17,7 @@
     <div class="dashboard-shell">
       <aside
         class="command-sidebar"
-        id="commandSidebar"
+        id="sidebarSlot"
         aria-label="Primary navigation"
       >
         <div class="brand-lockup">
@@ -53,9 +53,12 @@
             <a class="nav-item" href="../teachers/index.html" title="Teachers"
               ><span class="nav-icon">♙</span><span>Teachers</span></a
             >
-             <a class="nav-item" href="../manage-logins/index.html" title="Users & Roles"
-               ><span class="nav-icon">⚿</span><span>Users &amp; Roles</span></a
-             >
+            <a
+              class="nav-item"
+              href="../manage-logins/index.html"
+              title="Users & Roles"
+              ><span class="nav-icon">⚿</span><span>Users &amp; Roles</span></a
+            >
           </div>
           <div class="nav-group">
             <span class="nav-label">Academics</span>
@@ -163,7 +166,7 @@
               type="button"
               aria-label="Notifications"
             >
-              <span>♢</span><i>3</i>
+              <span>♢</span><i id="notificationCount">0</i>
             </button>
             <button class="top-profile" id="topProfile" type="button">
               <span class="profile-avatar profile-avatar--small" id="topAvatar"
@@ -185,8 +188,9 @@
           <div class="page-intro">
             <div>
               <p class="eyebrow">
-                Tuesday, 23 September 2026 <span class="live-dot"></span> Live
-                overview
+                <span id="schoolNameLabel">Mandela SMS</span> ·
+                <span id="dashboardDate"></span> <span class="live-dot"></span>
+                Live overview
               </p>
               <h1 id="pageTitle">
                 Good morning, <span id="greetingName">Admin</span>
@@ -226,40 +230,40 @@
                   <span class="metric-icon">◉</span
                   ><span class="trend trend--up">+4.8%</span>
                 </div>
-                <strong>1,248</strong><span>Students enrolled</span
-                ><small>Across 42 active classes</small>
+                <strong id="metricStudents">—</strong><span>Students enrolled</span
+                ><small id="metricClasses">Loading class count…</small>
               </article>
               <article class="pulse-card">
                 <div class="pulse-top">
                   <span class="metric-icon">✓</span
                   ><span class="trend trend--up">+2.1%</span>
                 </div>
-                <strong>94.2%</strong><span>Attendance today</span
-                ><small>Compared with yesterday</small>
+                <strong id="metricAttendance">—</strong><span>Attendance today</span
+                ><small id="metricAttendanceNote">Waiting for today's register</small>
               </article>
               <article class="pulse-card">
                 <div class="pulse-top">
                   <span class="metric-icon">₵</span
                   ><span class="trend trend--neutral">On track</span>
                 </div>
-                <strong>78%</strong><span>Fees collected</span
-                ><small>KSh 9.84M of KSh 12.6M</small>
+                <strong id="metricFees">—</strong><span>Fees collected</span
+                ><small id="metricFeesNote">Loading fee records…</small>
               </article>
               <article class="pulse-card">
                 <div class="pulse-top">
                   <span class="metric-icon metric-icon--alert">!</span
                   ><span class="trend trend--alert">Needs review</span>
                 </div>
-                <strong>3</strong><span>Open alerts</span
-                ><small>2 warnings · 1 information</small>
+                <strong id="metricAlerts">—</strong><span>Open alerts</span
+                ><small>Items needing follow-up</small>
               </article>
               <article class="pulse-card">
                 <div class="pulse-top">
                   <span class="metric-icon">♙</span
                   ><span class="trend trend--up">96%</span>
                 </div>
-                <strong>96%</strong><span>Teachers present</span
-                ><small>24 of 25 checked in</small>
+                <strong id="metricTeachers">—</strong><span>Teachers</span
+                ><small>In the staff directory</small>
               </article>
             </div>
           </section>
@@ -274,9 +278,9 @@
                   <span class="section-kicker">Action queue</span>
                   <h2 id="attentionTitle">Needs Your Attention</h2>
                 </div>
-                <span class="count-badge">3 open</span>
+                <span class="count-badge" id="attentionCount">Loading</span>
               </div>
-              <div class="attention-list">
+              <div class="attention-list" id="attentionList">
                 <button
                   class="attention-item attention-item--warning"
                   data-toast="Opening students with outstanding fees"
@@ -348,12 +352,9 @@
                 >
                   <span>◌</span><strong>Send announcement</strong
                   ><small>Reach the school</small></button
-                ><button
-                  class="quick-action"
-                  data-toast="Report generation is ready for connection"
-                >
+                ><button class="quick-action" data-action="export-report">
                   <span>▥</span><strong>Generate report</strong
-                  ><small>Export insights</small>
+                    ><small>Export school data</small>
                 </button>
               </div>
             </section>
@@ -377,9 +378,9 @@
                 </button>
               </div>
               <div class="chart-summary">
-                <strong>93.5%</strong
-                ><span class="trend trend--up">↑ 1.8% today</span
-                ><small>1,167 present of 1,248 students</small>
+                <strong id="attendanceSummary">—</strong
+                ><span class="trend trend--neutral" id="attendanceTrend">Today</span
+                ><small id="attendanceSummaryNote">No attendance records loaded</small>
               </div>
               <div class="chart-wrap">
                 <canvas
@@ -387,7 +388,7 @@
                   aria-label="Attendance trend chart"
                 ></canvas>
               </div>
-              <div class="class-breakdown">
+              <div class="class-breakdown" id="classBreakdown">
                 <div>
                   <span>Grade 6</span><b>96%</b
                   ><small>Present 96 · Absent 2 · Late 2</small
@@ -424,11 +425,11 @@
                 </button>
               </div>
               <div class="chart-summary">
-                <strong>68.4%</strong
-                ><span class="trend trend--up">↑ 4.2% this term</span
+                <strong id="performanceSummary">—</strong
+                ><span class="trend trend--neutral">Current records</span
                 ><small>Average score across assessed subjects</small>
               </div>
-              <div class="performance-list">
+              <div class="performance-list" id="performanceList">
                 <div>
                   <span>Mathematics</span><b>74%</b
                   ><i><em style="width: 74%"></em></i>
@@ -463,13 +464,11 @@
                   View finance
                 </button>
               </div>
-              <div class="finance-stats">
-                <div>
-                  <small>Total expected</small><strong>KSh 12.6M</strong>
-                </div>
-                <div><small>Collected</small><strong>KSh 9.84M</strong></div>
-                <div><small>Outstanding</small><strong>KSh 2.76M</strong></div>
-                <div><small>Collection rate</small><strong>78%</strong></div>
+              <div class="finance-stats" id="financeStats">
+                <div><small>Total expected</small><strong>—</strong></div>
+                <div><small>Collected</small><strong>—</strong></div>
+                <div><small>Outstanding</small><strong>—</strong></div>
+                <div><small>Collection rate</small><strong>—</strong></div>
               </div>
               <div class="finance-chart">
                 <canvas
@@ -477,31 +476,8 @@
                   aria-label="Fees collected over time"
                 ></canvas>
               </div>
-              <div class="payment-list">
+              <div class="payment-list" id="paymentList">
                 <h3>Recent payments</h3>
-                <div>
-                  <span class="payment-avatar">BK</span>
-                  <p>
-                    <strong>Brian Kamau</strong><small>Today · Grade 8A</small>
-                  </p>
-                  <b>KSh 15,000</b>
-                </div>
-                <div>
-                  <span class="payment-avatar">AM</span>
-                  <p>
-                    <strong>Aisha Mwangi</strong
-                    ><small>Yesterday · Grade 7</small>
-                  </p>
-                  <b>KSh 10,000</b>
-                </div>
-                <div>
-                  <span class="payment-avatar">KO</span>
-                  <p>
-                    <strong>Kevin Otieno</strong
-                    ><small>Yesterday · Grade 9B</small>
-                  </p>
-                  <b>KSh 7,500</b>
-                </div>
               </div>
             </section>
           </div>
@@ -520,7 +496,7 @@
                   View all <span>→</span>
                 </button>
               </div>
-              <div class="activity-feed">
+              <div class="activity-feed" id="activityFeed">
                 <div>
                   <time>10:42</time
                   ><span class="feed-icon feed-icon--green">₵</span>
@@ -566,10 +542,7 @@
                   <span class="section-kicker">On the calendar</span>
                   <h2 id="eventsTitle">Upcoming</h2>
                 </div>
-                <button
-                  class="text-button"
-                  data-toast="Opening school calendar"
-                >
+                <button class="text-button" data-href="../timetable/index.html">
                   View calendar <span>→</span>
                 </button>
               </div>
@@ -673,30 +646,13 @@
         </div>
         <button id="markRead" type="button">Mark all read</button>
       </div>
-      <button class="notification-item" data-notification>
-        <span class="attention-symbol">!</span
-        ><span
-          ><strong>Fee payment overdue</strong
-          ><small>12 students need a reminder</small></span
-        ></button
-      ><button class="notification-item" data-notification>
-        <span class="attention-symbol">◌</span
-        ><span
-          ><strong>New announcement</strong
-          ><small>Sports Day Schedule was published</small></span
-        ></button
-      ><button class="notification-item" data-notification>
-        <span class="attention-symbol">✓</span
-        ><span
-          ><strong>Attendance completed</strong
-          ><small>Grade 8A register is complete</small></span
-        >
-      </button>
+      <div id="notificationList"></div>
     </div>
     <div class="dashboard-toast" id="dashboardToast" role="status"></div>
 
     <script src="../shared/auth-client.js"></script>
     <script src="../shared/auth-guard.js"></script>
+    <script src="../shared/sidebar.js"></script>
     <script src="../shared/vendor/chart.umd.js"></script>
     <script src="script.js"></script>
   </body>

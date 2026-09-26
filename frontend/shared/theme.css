@@ -873,7 +873,13 @@ body::before {
 
 #sidebarSlot {
   width: 248px;
+  flex: 0 0 248px;
   min-width: 0;
+  height: 100vh;
+  min-height: 0;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
   background: #172b39;
   border-right: 0;
   padding: 24px 14px 16px;
@@ -915,6 +921,8 @@ body::before {
 }
 
 .sidebar-nav {
+  flex: 1;
+  min-height: 0;
   gap: 11px;
   overflow-y: auto;
 }
@@ -1038,8 +1046,8 @@ body::before {
   width: 26px;
   height: 22px;
   border-radius: 5px;
-  background: rgba(255,255,255,.08);
-  font-size: .9rem;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.9rem;
 }
 #sidebarSlot.is-collapsed .sidebar-link {
   justify-content: center;
@@ -1171,6 +1179,10 @@ body::before {
 @media (max-width: 860px) {
   #sidebarSlot {
     width: 100%;
+    height: auto;
+    min-height: auto;
+    position: static;
+    flex-basis: auto;
     padding: 10px 12px;
   }
   .app-main {

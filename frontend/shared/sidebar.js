@@ -85,6 +85,13 @@
           roles: ["admin", "teacher"],
         },
         {
+          key: "events",
+          label: "Events",
+          icon: "◷",
+          href: "../events/index.html",
+          roles: ["admin", "teacher"],
+        },
+        {
           key: "teacher-portal",
           label: "My Classes",
           icon: "♧",
@@ -184,12 +191,14 @@
       <div class="sidebar-profile">
         <span class="profile-avatar">${getInitials(user.name)}</span>
         <span class="profile-copy"><strong>${user.name || "Admin"}</strong><small>${user.role || "Administrator"}</small></span>
-        <button class="profile-more" type="button" aria-label="Account menu">•••</button>
+        <button class="profile-more" id="sharedSidebarProfileButton" type="button" aria-label="Account menu">•••</button>
       </div>`;
 
     const collapseButton = document.getElementById("sharedSidebarCollapse");
     const saved = localStorage.getItem("sms_sidebar_collapsed") === "true";
     if (saved) slot.classList.add("is-collapsed");
+    collapseButton.textContent = saved ? "→" : "←";
+    collapseButton.setAttribute("aria-expanded", String(!saved));
     collapseButton.addEventListener("click", () => {
       const collapsed = slot.classList.toggle("is-collapsed");
       localStorage.setItem("sms_sidebar_collapsed", String(collapsed));

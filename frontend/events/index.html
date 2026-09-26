@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Events | Mandela SMS</title>
+    <link rel="stylesheet" href="../shared/theme.css" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <div id="sidebarSlot"></div>
+      <main class="app-main">
+        <div class="events-board">
+          <header class="events-header">
+            <div>
+              <span class="events-kicker">School calendar</span>
+              <h1>Events</h1>
+              <p>Keep school dates, meetings, and activities in one place.</p>
+            </div>
+            <button class="events-primary" id="addEventButton" type="button">＋ Add event</button>
+          </header>
+
+          <section class="events-stats" aria-label="Event summary">
+            <div><span>Upcoming</span><strong id="upcomingCount">—</strong></div>
+            <div><span>Past events</span><strong id="pastCount">—</strong></div>
+            <div><span>Next event</span><strong id="nextEventDate">—</strong></div>
+          </section>
+
+          <section class="events-content" aria-label="School events">
+            <div class="events-toolbar">
+              <div class="events-filters" role="group" aria-label="Filter events">
+                <button type="button" data-range="upcoming" class="is-active">Upcoming</button>
+                <button type="button" data-range="past">Past</button>
+                <button type="button" data-range="all">All events</button>
+              </div>
+              <label class="events-search">
+                <span aria-hidden="true">⌕</span>
+                <input id="eventSearch" type="search" placeholder="Search events" aria-label="Search events" />
+              </label>
+            </div>
+            <div id="eventsList" class="events-list" aria-live="polite"></div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <div class="event-modal" id="eventModal" aria-hidden="true">
+      <div class="event-dialog" role="dialog" aria-modal="true" aria-labelledby="eventModalTitle">
+        <form id="eventForm">
+          <input id="eventId" type="hidden" />
+          <h2 id="eventModalTitle">Add event</h2>
+          <label>Event name<input id="eventName" required maxlength="120" /></label>
+          <label>Date and time<input id="eventDate" type="datetime-local" required /></label>
+          <label>Description<textarea id="eventDescription" rows="4" maxlength="1000"></textarea></label>
+          <p class="event-form-error" id="eventFormError" role="alert"></p>
+          <div class="event-form-actions">
+            <button type="button" class="events-secondary" id="cancelEventButton">Cancel</button>
+            <button type="submit" class="events-primary" id="saveEventButton">Save event</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script src="../shared/auth-client.js"></script>
+    <script src="../shared/auth-guard.js"></script>
+    <script src="../shared/sidebar.js"></script>
+    <script src="script.js"></script>
+  </body>
+</html>

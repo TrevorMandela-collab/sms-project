@@ -88,6 +88,28 @@ async function run() {
     );
     assert.ok(student.schoolId, "created records must be school scoped");
 
+    const schoolProfile = await request("/schools/me", { headers });
+    assert.equal(schoolProfile.status, 200, "admin should read school profile");
+    const schoolData = await schoolProfile.json();
+    assert.equal(schoolData.school.name, "Smoke School");
+
+    const schoolUpdate = await request("/schools/me", {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({
+        name: "Smoke School Updated",
+        schoolType: "Combined",
+        accentColor: "#237c78",
+        onboardingCompleted: true,
+      }),
+    });
+    assert.equal(schoolUpdate.status, 200, "admin should update school setup");
+    const updatedSchool = await schoolUpdate.json();
+    assert.equal(updatedSchool.school.name, "Smoke School Updated");
+    assert.equal(updatedSchool.school.settings.schoolType, "Combined");
+    assert.equal(updatedSchool.school.settings.accentColor, "#237c78");
+    assert.equal(updatedSchool.school.onboardingCompleted, true);
+
     const paginated = await request(
       "/students?search=brian&page=1&limit=10&sort=-name",
       { headers },

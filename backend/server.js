@@ -21,6 +21,7 @@ const libraryLoansRoutes = require('./routes/library-loans');
 const eventsRoutes = require('./routes/events');
 const inviteCodesRoutes = require('./routes/invite-codes');
 const chatsRoutes = require('./routes/chats');
+const schoolsRoutes = require('./routes/schools');
 const db = require('./utils/db');
 const { initRealtime } = require('./utils/realtime');
 
@@ -50,6 +51,7 @@ app.use('/api/library-loans', libraryLoansRoutes);
 app.use('/api/events', eventsRoutes);
 app.use('/api/invite-codes', inviteCodesRoutes);
 app.use('/api/chats', chatsRoutes);
+app.use('/api/schools', schoolsRoutes);
 
 // 404 fallback for unmatched API routes
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
