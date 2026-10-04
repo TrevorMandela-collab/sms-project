@@ -1,6 +1,5 @@
 const express = require("express");
 const crypto = require("crypto");
-const { v4: uuidv4 } = require("uuid");
 const db = require("../utils/db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 
@@ -47,6 +46,9 @@ router.post(
   requireRole("admin"),
   safe(async (req, res) => {
     const { role, studentId, teacherId, childIds, expiresInDays } = req.body;
+    if (!req.user.schoolId) {
+      return res.status(403).json({ error: "Your account is not linked to a school." });
+    }
     if (!["student", "teacher", "parent"].includes(role)) {
       return res
         .status(400)
@@ -60,23 +62,30 @@ router.post(
           .json({ error: "studentId is required for a student invite." });
       }
       const student = await db.findById("students", studentId);
-      if (!student) {
+      if (!student || student.schoolId !== req.user.schoolId) {
         return res.status(404).json({ error: "Student record not found." });
       }
     }
     if (role === "teacher" && teacherId) {
       const teacher = await db.findById("teachers", teacherId);
-      if (!teacher) {
+      if (!teacher || teacher.schoolId !== req.user.schoolId) {
         return res.status(404).json({ error: "Teacher record not found." });
       }
     }
+    if (role === "parent" && childIds !== undefined && !Array.isArray(childIds)) {
+      return res.status(400).json({ error: "childIds must be an array." });
+    }
     if (role === "parent" && Array.isArray(childIds) && childIds.length) {
       const students = await db.readAll("students");
-      const validIds = new Set(students.map((s) => s.id));
+      const validIds = new Set(
+        students
+          .filter((student) => student.schoolId === req.user.schoolId)
+          .map((student) => student.id),
+      );
       if (!childIds.every((id) => validIds.has(id))) {
         return res
           .status(404)
-          .json({ error: "One or more selected children were not found." });
+          .json({ error: "One or more selected children were not found in your school." });
       }
     }
 
@@ -87,7 +96,7 @@ router.post(
     ).toISOString();
 
     const invite = {
-      id: uuidv4(),
+      id: crypto.randomUUID(),
       code: generateCode(),
       role,
       schoolId: req.user.schoolId || null,
@@ -115,7 +124,9 @@ router.get(
   requireAuth,
   requireRole("admin"),
   safe(async (req, res) => {
-    let codes = await db.readAll(COLLECTION);
+    let codes = (await db.readAll(COLLECTION)).filter(
+      (invite) => invite.schoolId === req.user.schoolId,
+    );
     if (req.query.studentId) {
       codes = codes.filter((c) => c.studentId === req.query.studentId);
     }
@@ -135,6 +146,10 @@ router.delete(
   requireAuth,
   requireRole("admin"),
   safe(async (req, res) => {
+    const invite = await db.findById(COLLECTION, req.params.id);
+    if (!invite || invite.schoolId !== req.user.schoolId) {
+      return res.status(404).json({ error: "Invite code not found." });
+    }
     const removed = await db.remove(COLLECTION, req.params.id);
     if (!removed)
       return res.status(404).json({ error: "Invite code not found." });

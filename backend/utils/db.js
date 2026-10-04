@@ -17,10 +17,7 @@ let sqlite = null;
 let schemaReady = null;
 
 if (usePostgres) {
-  pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
-  });
+  pool = new Pool({ connectionString: process.env.DATABASE_URL });
 } else {
   const sqlitePath =
     process.env.SQLITE_PATH || path.join(__dirname, "..", "data", "sms.sqlite");
@@ -203,6 +200,101 @@ async function remove(collection, id) {
   return rowCount > 0;
 }
 
+async function completePasswordReset(tokenHash, passwordHash) {
+  await ensureSchema();
+  const now = new Date().toISOString();
+  const usedAt = now;
+
+  if (!usePostgres) {
+    const complete = sqlite.transaction(() => {
+      const row = sqlite
+        .prepare(`
+          SELECT id, data
+          FROM store
+          WHERE collection = 'password-resets'
+            AND json_extract(data, '$.tokenHash') = ?
+            AND json_extract(data, '$.used') = 0
+            AND json_extract(data, '$.expiresAt') > ?
+        `)
+        .get(tokenHash, now);
+      if (!row) return null;
+      const reset = JSON.parse(row.data);
+      const userRow = sqlite
+        .prepare("SELECT data FROM store WHERE collection = 'users' AND id = ?")
+        .get(reset.userId);
+      if (!userRow) return null;
+
+      const user = JSON.parse(userRow.data);
+      const updatedUser = {
+        ...user,
+        passwordHash,
+        tokenVersion: (user.tokenVersion || 0) + 1,
+      };
+      const updatedReset = { ...reset, used: true, usedAt };
+      sqlite
+        .prepare("UPDATE store SET data = ? WHERE collection = 'users' AND id = ?")
+        .run(JSON.stringify(updatedUser), user.id);
+      sqlite
+        .prepare("UPDATE store SET data = ? WHERE collection = 'password-resets' AND id = ?")
+        .run(JSON.stringify(updatedReset), reset.id);
+      return { reset: updatedReset, user: updatedUser };
+    });
+    return complete();
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows: resetRows } = await client.query(
+      `
+        SELECT id, data
+        FROM store
+        WHERE collection = 'password-resets'
+          AND data->>'tokenHash' = $1
+          AND data->>'used' = 'false'
+          AND (data->>'expiresAt')::timestamptz > $2::timestamptz
+        FOR UPDATE
+      `,
+      [tokenHash, now],
+    );
+    if (!resetRows.length) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const reset = resetRows[0].data;
+    const { rows: userRows } = await client.query(
+      "SELECT data FROM store WHERE collection = 'users' AND id = $1 FOR UPDATE",
+      [reset.userId],
+    );
+    if (!userRows.length) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    const user = userRows[0].data;
+    const updatedUser = {
+      ...user,
+      passwordHash,
+      tokenVersion: (user.tokenVersion || 0) + 1,
+    };
+    const updatedReset = { ...reset, used: true, usedAt };
+    await client.query(
+      "UPDATE store SET data = $1 WHERE collection = 'users' AND id = $2",
+      [updatedUser, user.id],
+    );
+    await client.query(
+      "UPDATE store SET data = $1 WHERE collection = 'password-resets' AND id = $2",
+      [updatedReset, reset.id],
+    );
+    await client.query("COMMIT");
+    return { reset: updatedReset, user: updatedUser };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   readAll,
   writeAll,
@@ -212,5 +304,6 @@ module.exports = {
   remove,
   ensureFile,
   ensureSchema,
+  completePasswordReset,
   pool,
 };

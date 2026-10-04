@@ -1,4 +1,5 @@
 const createCrudRouter = require("../utils/crudRouterFactory");
+const { getTeacherStudentIds } = require("../utils/teacherScope");
 
 module.exports = createCrudRouter("students", {
   permissions: {
@@ -13,6 +14,14 @@ module.exports = createCrudRouter("students", {
   // A student only ever sees their own record
   scopeForStudent: (records, user) =>
     records.filter((s) => s.id === user.studentId),
+  scopeForTeacher: async (records, user) => {
+    const ids = await getTeacherStudentIds(user);
+    return records.filter((student) => ids.has(student.id));
+  },
+  writeGuardForTeacher: async (student, user) => {
+    const ids = await getTeacherStudentIds(user);
+    return ids.has(student.id);
+  },
   searchFields: ["name", "class", "guardianContact"],
   filterFields: ["class", "status", "gender"],
   sortFields: ["name", "class", "createdAt"],

@@ -77,7 +77,12 @@ const SmsAuth = {
     localStorage.removeItem(USER_KEY);
   },
 
-  logout() {
+  async logout() {
+    try {
+      await this.apiFetch("/auth/logout", { method: "POST" });
+    } catch (error) {
+      SmsUI.toast(`Session ended locally: ${error.message}`, "warning");
+    }
     this.clearSession();
     window.location.href = "../login/index.html";
   },

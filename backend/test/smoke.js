@@ -2,7 +2,7 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 const Database = require("better-sqlite3");
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 
 const port = 4311;
 const databasePath = path.join(__dirname, "..", "data", "smoke-test.sqlite");
@@ -13,11 +13,11 @@ function wait(ms) {
 }
 
 async function request(endpoint, options = {}) {
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
       return await fetch(`${baseUrl}${endpoint}`, options);
     } catch (error) {
-      if (attempt === 29) throw error;
+      if (attempt === 99) throw error;
       await wait(100);
     }
   }
@@ -33,6 +33,8 @@ async function run() {
       SQLITE_PATH: databasePath,
       DATABASE_URL: "",
       JWT_SECRET: "smoke-test-secret",
+      NODE_ENV: "test",
+      TRUST_PROXY_HOPS: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -47,6 +49,48 @@ async function run() {
   try {
     const health = await request("/health");
     assert.equal(health.status, 200, "health endpoint should respond");
+    const allowedOrigin = await request("/health", {
+      headers: { Origin: "http://localhost:5500" },
+    });
+    assert.equal(
+      allowedOrigin.headers.get("access-control-allow-origin"),
+      "http://localhost:5500",
+      "configured local frontend origin should be allowed by CORS",
+    );
+    const deniedOrigin = await request("/health", {
+      headers: { Origin: "https://untrusted.example" },
+    });
+    assert.equal(
+      deniedOrigin.headers.get("access-control-allow-origin"),
+      null,
+      "unconfigured frontend origins must not be allowed by CORS",
+    );
+
+    const invalidProductionConfig = spawnSync(
+      process.execPath,
+      ["-e", "require('./config')"],
+      {
+        cwd: path.join(__dirname, ".."),
+        env: {
+          ...process.env,
+          NODE_ENV: "production",
+          JWT_SECRET: "",
+          DATABASE_URL: "",
+          FRONTEND_URL: "",
+        },
+        encoding: "utf8",
+      },
+    );
+    assert.notEqual(
+      invalidProductionConfig.status,
+      0,
+      "production must refuse to start without a JWT secret",
+    );
+    assert.match(
+      invalidProductionConfig.stderr,
+      /JWT_SECRET must be set/,
+      "production configuration failure should identify the missing secret",
+    );
 
     const registration = await request("/auth/register", {
       method: "POST",
@@ -54,7 +98,7 @@ async function run() {
       body: JSON.stringify({
         name: "Smoke Admin",
         email: "smoke@example.test",
-        password: "secret123",
+        password: "smoke-test-password-123!",
         role: "admin",
         schoolName: "Smoke School",
       }),
@@ -73,6 +117,7 @@ async function run() {
       body: JSON.stringify({
         name: "Brian Kamau",
         class: "Grade 8A",
+        schoolId: "another-school-id",
         createdBy: "forged-user-id",
       }),
     });
@@ -86,34 +131,521 @@ async function run() {
       auth.user.id,
       "createdBy must come from the session",
     );
-    assert.ok(student.schoolId, "created records must be school scoped");
+    assert.equal(
+      student.schoolId,
+      auth.user.schoolId,
+      "created records must use the authenticated school's id",
+    );
+    const initialAuditLogs = await request("/audit-logs?page=1&limit=10", {
+      headers,
+    });
+    assert.equal(initialAuditLogs.status, 200, "school admins should read audit logs");
+    const initialAuditPage = await initialAuditLogs.json();
+    assert.ok(
+      initialAuditPage.data.some(
+        (event) =>
+          event.action === "USER_CREATED" &&
+          event.entityId === auth.user.id &&
+          event.schoolId === auth.user.schoolId,
+      ),
+      "bootstrap account creation should be auditable",
+    );
+    assert.ok(
+      initialAuditPage.data.some(
+        (event) =>
+          event.action === "STUDENTS_CREATED" &&
+          event.entityId === student.id &&
+          event.schoolId === auth.user.schoolId,
+      ),
+      "student creation should be auditable",
+    );
+    const invalidAuditDate = await request("/audit-logs?from=not-a-date", {
+      headers,
+    });
+    assert.equal(invalidAuditDate.status, 400, "audit date filters should be validated");
+    const unauthorizedAuditLogs = await request("/audit-logs", {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${await (async () => {
+          const parent = await request("/auth/register", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              name: "Audit Test Parent",
+              email: "audit-parent@example.test",
+              password: "audit-parent-password-123!",
+              role: "parent",
+              childIds: [student.id],
+            }),
+          });
+          return (await parent.json()).token;
+        })()}`,
+      },
+    });
+    assert.equal(
+      unauthorizedAuditLogs.status,
+      403,
+      "parents must not read school audit logs",
+    );
+
+    const foreignStudent = {
+      id: "foreign-school-student",
+      name: "Foreign Student",
+      class: "Grade 8A",
+      schoolId: "another-school-id",
+    };
+    const foreignClass = {
+      id: "foreign-school-class",
+      name: "Grade 8A",
+      schoolId: "another-school-id",
+      teacherIds: [],
+    };
+    const foreignUser = {
+      id: "foreign-school-user",
+      name: "Foreign Admin",
+      email: "foreign-admin@example.test",
+      role: "admin",
+      schoolId: "another-school-id",
+      status: "active",
+    };
+    const foreignChat = {
+      id: "foreign-school-chat",
+      name: "Foreign chat",
+      memberIds: [auth.user.id],
+      schoolId: "another-school-id",
+      inviteCode: "OTHR-SCHL",
+    };
+    const foreignInvite = {
+      id: "foreign-school-invite",
+      code: "ABCD-EFGH",
+      schoolId: "another-school-id",
+      role: "student",
+      studentId: foreignStudent.id,
+      used: false,
+    };
+    const foreignAuditEvent = {
+      id: "foreign-school-audit-event",
+      schoolId: "another-school-id",
+      actorUserId: foreignUser.id,
+      action: "FOREIGN_EVENT",
+      entityType: "student",
+      entityId: foreignStudent.id,
+      timestamp: new Date().toISOString(),
+      metadata: {},
+    };
+    const tenantDatabase = new Database(databasePath);
+    const insertTenantRecord = tenantDatabase.prepare(
+      "INSERT INTO store (collection, id, data) VALUES (?, ?, ?)",
+    );
+    insertTenantRecord.run(
+      "students",
+      foreignStudent.id,
+      JSON.stringify(foreignStudent),
+    );
+    insertTenantRecord.run("classes", foreignClass.id, JSON.stringify(foreignClass));
+    insertTenantRecord.run("users", foreignUser.id, JSON.stringify(foreignUser));
+    insertTenantRecord.run("chats", foreignChat.id, JSON.stringify(foreignChat));
+    insertTenantRecord.run(
+      "invite-codes",
+      foreignInvite.id,
+      JSON.stringify(foreignInvite),
+    );
+    insertTenantRecord.run(
+      "audit-logs",
+      foreignAuditEvent.id,
+      JSON.stringify(foreignAuditEvent),
+    );
+    tenantDatabase.close();
+
+    const roleRefreshDatabase = new Database(databasePath);
+    const adminRecord = JSON.parse(
+      roleRefreshDatabase
+        .prepare("SELECT data FROM store WHERE collection = ? AND id = ?")
+        .get("users", auth.user.id).data,
+    );
+    adminRecord.role = "teacher";
+    roleRefreshDatabase
+      .prepare("UPDATE store SET data = ? WHERE collection = ? AND id = ?")
+      .run(JSON.stringify(adminRecord), "users", auth.user.id);
+    roleRefreshDatabase.close();
+    const staleAdminToken = await request("/schools/me", { headers });
+    assert.equal(
+      staleAdminToken.status,
+      403,
+      "authorization must use the current database role rather than JWT claims",
+    );
+    const restoreRoleDatabase = new Database(databasePath);
+    adminRecord.role = "admin";
+    restoreRoleDatabase
+      .prepare("UPDATE store SET data = ? WHERE collection = ? AND id = ?")
+      .run(JSON.stringify(adminRecord), "users", auth.user.id);
+    restoreRoleDatabase.close();
+
+    const studentList = await request("/students", { headers });
+    const visibleStudents = await studentList.json();
+    assert.ok(
+      visibleStudents.every((record) => record.id !== foreignStudent.id),
+      "school admins must not list another school's students",
+    );
+    const foreignStudentResponse = await request(
+      `/students/${foreignStudent.id}`,
+      { headers },
+    );
+    assert.equal(
+      foreignStudentResponse.status,
+      404,
+      "school admins must not retrieve another school's student by id",
+    );
+    const foreignStudentUpdate = await request(
+      `/students/${foreignStudent.id}`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ name: "Tampered Student" }),
+      },
+    );
+    assert.equal(
+      foreignStudentUpdate.status,
+      404,
+      "school admins must not modify another school's student",
+    );
+    const foreignStudentDelete = await request(
+      `/students/${foreignStudent.id}`,
+      { method: "DELETE", headers },
+    );
+    assert.equal(
+      foreignStudentDelete.status,
+      404,
+      "school admins must not delete another school's student",
+    );
+    const foreignAttendance = await request("/attendance", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        studentId: foreignStudent.id,
+        date: "2026-09-24",
+        status: "present",
+      }),
+    });
+    assert.equal(
+      foreignAttendance.status,
+      404,
+      "attendance must not reference another school's student",
+    );
+    const foreignFee = await request("/fees", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ studentId: foreignStudent.id, amount: 100 }),
+    });
+    assert.equal(
+      foreignFee.status,
+      404,
+      "fees must not reference another school's student",
+    );
+    const foreignExam = await request("/exams", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        studentId: foreignStudent.id,
+        subject: "Mathematics",
+        score: 80,
+        maxScore: 100,
+      }),
+    });
+    assert.equal(
+      foreignExam.status,
+      404,
+      "results must not reference another school's student",
+    );
+    const foreignClassAssignment = await request("/assignments", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        title: "Cross-school assignment",
+        classId: foreignClass.id,
+      }),
+    });
+    assert.equal(
+      foreignClassAssignment.status,
+      404,
+      "assignments must not reference another school's class",
+    );
+    const schoolUsersResponse = await request("/auth/users", { headers });
+    const tenantAuditResponse = await request("/audit-logs", { headers });
+    assert.equal(tenantAuditResponse.status, 200);
+    const tenantAuditPage = await tenantAuditResponse.json();
+    assert.ok(
+      tenantAuditPage.data.every(
+        (event) => event.schoolId === auth.user.schoolId,
+      ),
+      "school audit logs must never include another school's events",
+    );
+    assert.ok(
+      !tenantAuditPage.data.some(
+        (event) => event.id === foreignAuditEvent.id,
+      ),
+      "a forged foreign audit event must remain hidden",
+    );
+    const schoolUsers = await schoolUsersResponse.json();
+    assert.ok(
+      schoolUsers.every((user) => user.id !== foreignUser.id),
+      "school admins must not list another school's accounts",
+    );
+    const foreignUserRoleUpdate = await request(
+      `/auth/users/${foreignUser.id}/role`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ role: "teacher" }),
+      },
+    );
+    assert.equal(
+      foreignUserRoleUpdate.status,
+      404,
+      "school admins must not modify another school's account",
+    );
+    const foreignUserDelete = await request(
+      `/auth/users/${foreignUser.id}`,
+      { method: "DELETE", headers },
+    );
+    assert.equal(
+      foreignUserDelete.status,
+      404,
+      "school admins must not delete another school's account",
+    );
+    const schoolChats = await request("/chats", { headers });
+    assert.deepEqual(
+      await schoolChats.json(),
+      [],
+      "school admins must only list their school's chats",
+    );
+    const foreignChatMessages = await request(
+      `/chats/${foreignChat.id}/messages`,
+      { headers },
+    );
+    assert.equal(
+      foreignChatMessages.status,
+      404,
+      "school admins must not read another school's messages",
+    );
+    const foreignChatUpdate = await request(`/chats/${foreignChat.id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ name: "Tampered chat" }),
+    });
+    assert.equal(
+      foreignChatUpdate.status,
+      404,
+      "school admins must not modify another school's chats",
+    );
+    const schoolInvites = await request("/invite-codes", { headers });
+    assert.ok(
+      (await schoolInvites.json()).every((invite) => invite.id !== foreignInvite.id),
+      "school admins must only list their school's invite codes",
+    );
+    const foreignInviteDelete = await request(
+      `/invite-codes/${foreignInvite.id}`,
+      { method: "DELETE", headers },
+    );
+    assert.equal(
+      foreignInviteDelete.status,
+      404,
+      "school admins must not revoke another school's invites",
+    );
+
+    const parentRegistration = await request("/auth/register", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        name: "Smoke Parent",
+        email: "parent@example.test",
+        password: "parent-smoke-password-123!",
+        role: "parent",
+        childIds: [student.id],
+      }),
+    });
+    assert.equal(parentRegistration.status, 201, "admin should create a linked parent account");
+    const parentAuth = await parentRegistration.json();
+    const parentHeaders = {
+      ...headers,
+      Authorization: `Bearer ${parentAuth.token}`,
+    };
+    const parentOwnChild = await request(`/students/${student.id}`, {
+      headers: parentHeaders,
+    });
+    assert.equal(parentOwnChild.status, 200, "parents should view their linked children");
+    const parentForeignChild = await request(
+      `/students/${foreignStudent.id}`,
+      { headers: parentHeaders },
+    );
+    assert.equal(
+      parentForeignChild.status,
+      404,
+      "parents must not view children at another school",
+    );
+    const forgedParent = await request("/auth/register", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        name: "Forged Parent",
+        email: "forged-parent@example.test",
+        password: "forged-parent-password-123!",
+        role: "parent",
+        childIds: [foreignStudent.id],
+      }),
+    });
+    assert.equal(
+      forgedParent.status,
+      404,
+      "admins must not link parent accounts to another school's students",
+    );
+
+    const assignedTeacherResponse = await request("/teachers", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "Assigned Teacher" }),
+    });
+    assert.equal(assignedTeacherResponse.status, 201);
+    const assignedTeacher = await assignedTeacherResponse.json();
+    const assignedClassResponse = await request("/classes", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        name: "Grade 8A",
+        teacherIds: [assignedTeacher.id],
+      }),
+    });
+    assert.equal(assignedClassResponse.status, 201);
+    const assignedClass = await assignedClassResponse.json();
+    const classLinkDatabase = new Database(databasePath);
+    const linkedStudentRecord = classLinkDatabase
+      .prepare("SELECT data FROM store WHERE collection = ? AND id = ?")
+      .get("students", student.id);
+    const linkedStudent = JSON.parse(linkedStudentRecord.data);
+    linkedStudent.classId = assignedClass.id;
+    classLinkDatabase
+      .prepare("UPDATE store SET data = ? WHERE collection = ? AND id = ?")
+      .run(JSON.stringify(linkedStudent), "students", student.id);
+    classLinkDatabase.close();
+    const renamedClass = await request(`/classes/${assignedClass.id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ name: "Grade 7A" }),
+    });
+    assert.equal(renamedClass.status, 200, "school admins should rename classes");
+    const otherClassResponse = await request("/classes", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "Grade 8B", teacherIds: [] }),
+    });
+    assert.equal(otherClassResponse.status, 201);
+    const otherClassStudentResponse = await request("/students", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "Unassigned Student", class: "Grade 8B" }),
+    });
+    assert.equal(otherClassStudentResponse.status, 201);
+    const otherClassStudent = await otherClassStudentResponse.json();
+    const teacherRegistration = await request("/auth/register", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        name: "Smoke Teacher",
+        email: "teacher@example.test",
+        password: "teacher-smoke-password-123!",
+        role: "teacher",
+        teacherId: assignedTeacher.id,
+      }),
+    });
+    assert.equal(teacherRegistration.status, 201);
+    const teacherAuth = await teacherRegistration.json();
+    const teacherHeaders = {
+      ...headers,
+      Authorization: `Bearer ${teacherAuth.token}`,
+    };
+    const assignedStudentResponse = await request(`/students/${student.id}`, {
+      headers: teacherHeaders,
+    });
+    assert.equal(
+      assignedStudentResponse.status,
+      200,
+      "teachers should view students in their assigned classes",
+    );
+    const unassignedStudentResponse = await request(
+      `/students/${otherClassStudent.id}`,
+      { headers: teacherHeaders },
+    );
+    assert.equal(
+      unassignedStudentResponse.status,
+      404,
+      "teachers must not view students in another teacher's class",
+    );
+    const forbiddenTeacherUpdate = await request(
+      `/students/${otherClassStudent.id}`,
+      {
+        method: "PATCH",
+        headers: teacherHeaders,
+        body: JSON.stringify({ name: "Unauthorized Change" }),
+      },
+    );
+    assert.equal(
+      forbiddenTeacherUpdate.status,
+      404,
+      "teachers must not update students outside their assigned classes",
+    );
+    const unauthorizedPayment = await request("/fees", {
+      method: "POST",
+      headers: teacherHeaders,
+      body: JSON.stringify({ studentId: student.id, amount: 100 }),
+    });
+    assert.equal(
+      unauthorizedPayment.status,
+      403,
+      "teachers must not record payments",
+    );
+
+    const inviteResponse = await request("/invite-codes", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ role: "student", studentId: student.id }),
+    });
+    assert.equal(inviteResponse.status, 201, "admins should create student invites");
+    const invite = await inviteResponse.json();
+    const studentRegistration = await request("/auth/register-with-code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        code: invite.code,
+        name: "Smoke Student",
+        email: "student@example.test",
+        password: "student-smoke-password-123!",
+        role: "student",
+      }),
+    });
+    assert.equal(studentRegistration.status, 201, "students should redeem valid school invites");
+    const studentAuth = await studentRegistration.json();
+    const studentHeaders = {
+      ...headers,
+      Authorization: `Bearer ${studentAuth.token}`,
+    };
+    const ownStudentRecord = await request(`/students/${student.id}`, {
+      headers: studentHeaders,
+    });
+    assert.equal(ownStudentRecord.status, 200, "students should view their own record");
+    const otherStudentRecord = await request(
+      `/students/${otherClassStudent.id}`,
+      { headers: studentHeaders },
+    );
+    assert.equal(
+      otherStudentRecord.status,
+      404,
+      "students must not view another student's record",
+    );
 
     const schoolProfile = await request("/schools/me", { headers });
     assert.equal(schoolProfile.status, 200, "admin should read school profile");
     const schoolData = await schoolProfile.json();
     assert.equal(schoolData.school.name, "Smoke School");
-
-    const db = new Database(databasePath);
-    const userRecord = db
-      .prepare("SELECT data FROM store WHERE collection = ? AND id = ?")
-      .get("users", auth.user.id);
-    const user = JSON.parse(userRecord.data);
-    user.schoolId = null;
-    db.prepare("UPDATE store SET data = ? WHERE collection = ? AND id = ?").run(
-      JSON.stringify(user),
-      "users",
-      auth.user.id,
-    );
-    db.close();
-
-    const repairedProfile = await request("/schools/me", { headers });
-    assert.equal(
-      repairedProfile.status,
-      200,
-      "admin without a linked school should still get a school profile",
-    );
-    const repairedSchool = await repairedProfile.json();
-    assert.ok(repairedSchool.school.id, "a fallback school should be created");
 
     const schoolUpdate = await request("/schools/me", {
       method: "PATCH",
@@ -163,34 +695,98 @@ async function run() {
       body: JSON.stringify({ email: "smoke@example.test" }),
     });
     assert.equal(forgotResponse.status, 200, "password reset request should be accepted");
+    const forgotBody = await forgotResponse.json();
+    assert.ok(forgotBody.token, "test mode should expose the reset token");
     const resetDatabase = new Database(databasePath);
     const resetRecords = resetDatabase
       .prepare("SELECT * FROM store WHERE collection = ?")
       .all("password-resets");
     assert.equal(resetRecords.length, 1, "a reset token should be created");
-    const resetToken = JSON.parse(resetRecords[0].data).token;
+    const savedReset = JSON.parse(resetRecords[0].data);
+    assert.ok(savedReset.tokenHash, "only a reset-token hash should be persisted");
+    assert.equal(savedReset.token, undefined, "plaintext reset tokens must not be persisted");
+    const resetToken = forgotBody.token;
     resetDatabase.close();
 
-    const passwordReset = await request("/auth/reset-password", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: resetToken, password: "newSecret456" }),
-    });
-    assert.equal(passwordReset.status, 200, "password reset should succeed");
+    const passwordResetAttempts = await Promise.all([
+      request("/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: resetToken,
+          password: "updated-smoke-password-456!",
+        }),
+      }),
+      request("/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: resetToken,
+          password: "updated-smoke-password-456!",
+        }),
+      }),
+    ]);
+    assert.deepEqual(
+      passwordResetAttempts.map((response) => response.status).sort(),
+      [200, 410],
+      "a reset token must only succeed once when requests race",
+    );
+    const consumedResetDatabase = new Database(databasePath);
+    const consumedReset = JSON.parse(
+      consumedResetDatabase
+        .prepare("SELECT data FROM store WHERE collection = ?")
+        .get("password-resets").data,
+    );
+    consumedResetDatabase.close();
+    assert.equal(consumedReset.used, true, "successful reset must consume its token");
 
     const oldLogin = await request("/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: "smoke@example.test", password: "secret123" }),
+      body: JSON.stringify({
+        email: "smoke@example.test",
+        password: "smoke-test-password-123!",
+      }),
     });
     assert.equal(oldLogin.status, 401, "old password should no longer work");
 
     const newLogin = await request("/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: "smoke@example.test", password: "newSecret456" }),
+      body: JSON.stringify({
+        email: "smoke@example.test",
+        password: "updated-smoke-password-456!",
+      }),
     });
     assert.equal(newLogin.status, 200, "new password should work");
+    const newLoginBody = await newLogin.json();
+    headers.Authorization = `Bearer ${newLoginBody.token}`;
+
+    const passwordChange = await request("/auth/password/change", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        currentPassword: "updated-smoke-password-456!",
+        newPassword: "rotated-smoke-password-789!",
+      }),
+    });
+    assert.equal(passwordChange.status, 200, "users should be able to change passwords");
+    const invalidatedSession = await request("/students", { headers });
+    assert.equal(
+      invalidatedSession.status,
+      401,
+      "password changes must invalidate active tokens",
+    );
+    const rotatedLogin = await request("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "smoke@example.test",
+        password: "rotated-smoke-password-789!",
+      }),
+    });
+    assert.equal(rotatedLogin.status, 200, "the changed password should authenticate");
+    headers.Authorization = `Bearer ${(await rotatedLogin.json()).token}`;
 
     const firstAttendance = await request("/attendance", {
       method: "POST",
@@ -219,6 +815,61 @@ async function run() {
       409,
       "duplicate attendance must be rejected",
     );
+
+    const db = new Database(databasePath);
+    const userRecord = db
+      .prepare("SELECT data FROM store WHERE collection = ? AND id = ?")
+      .get("users", auth.user.id);
+    const user = JSON.parse(userRecord.data);
+    user.schoolId = null;
+    db.prepare("UPDATE store SET data = ? WHERE collection = ? AND id = ?").run(
+      JSON.stringify(user),
+      "users",
+      auth.user.id,
+    );
+    db.close();
+
+    const repairedProfile = await request("/schools/me", { headers });
+    assert.equal(
+      repairedProfile.status,
+      200,
+      "admin without a linked school should still get a school profile",
+    );
+    const repairedSchool = await repairedProfile.json();
+    assert.ok(repairedSchool.school.id, "a fallback school should be created");
+
+    const throttledLoginHeaders = {
+      "Content-Type": "application/json",
+      "X-Forwarded-For": "203.0.113.10",
+    };
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const failedLogin = await request("/auth/login", {
+        method: "POST",
+        headers: throttledLoginHeaders,
+        body: JSON.stringify({
+          email: "smoke@example.test",
+          password: "incorrect-password-value",
+        }),
+      });
+      assert.equal(failedLogin.status, 401, "invalid credentials should be rejected");
+    }
+    const rateLimitedLogin = await request("/auth/login", {
+      method: "POST",
+      headers: throttledLoginHeaders,
+      body: JSON.stringify({
+        email: "smoke@example.test",
+        password: "incorrect-password-value",
+      }),
+    });
+    assert.equal(rateLimitedLogin.status, 429, "authentication attempts should be rate limited");
+
+    const logout = await request("/auth/logout", {
+      method: "POST",
+      headers,
+    });
+    assert.equal(logout.status, 200, "users should be able to invalidate sessions");
+    const loggedOutRequest = await request("/students", { headers });
+    assert.equal(loggedOutRequest.status, 401, "logout should invalidate the session token");
 
     console.log("API smoke tests passed");
   } finally {

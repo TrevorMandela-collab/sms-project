@@ -22,7 +22,7 @@ module.exports = createCrudRouter("attendance", {
     const ids = await getTeacherStudentIds(user);
     return ids.has(record.studentId);
   },
-  validate: async (attendance, { operation, existing }) => {
+  validate: async (attendance, { operation, user }) => {
     if (
       !["present", "absent", "late", "excused"].includes(
         String(attendance.status).toLowerCase(),
@@ -45,6 +45,13 @@ module.exports = createCrudRouter("attendance", {
       );
       error.statusCode = 400;
       error.code = "INVALID_ATTENDANCE_RECORD";
+      throw error;
+    }
+    const student = await db.findById("students", attendance.studentId);
+    if (!student || student.schoolId !== user.schoolId) {
+      const error = new Error("Student record not found.");
+      error.statusCode = 404;
+      error.code = "STUDENT_NOT_FOUND";
       throw error;
     }
     if (operation === "create") {

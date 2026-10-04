@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Audit Logs | Mandela SMS</title>
+    <link rel="stylesheet" href="../shared/theme.css" />
+    <link rel="stylesheet" href="../shared/portal.css" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside id="sidebarSlot" aria-label="Primary navigation"></aside>
+      <main class="app-main audit-main">
+        <header class="audit-heading">
+          <div>
+            <p class="audit-eyebrow">SCHOOL ADMINISTRATION</p>
+            <h1>Audit logs</h1>
+            <p>Review account, academic, and operational changes for your school.</p>
+          </div>
+          <button class="audit-refresh" id="refreshButton" type="button">Refresh</button>
+        </header>
+
+        <form class="audit-filters" id="auditFilters">
+          <label>
+            Action
+            <input name="action" type="search" maxlength="80" placeholder="e.g. LOGIN" />
+          </label>
+          <label>
+            Entity
+            <input name="entityType" type="search" maxlength="80" placeholder="e.g. students" />
+          </label>
+          <label>
+            From
+            <input name="from" type="date" />
+          </label>
+          <label>
+            To
+            <input name="to" type="date" />
+          </label>
+          <button type="submit">Apply filters</button>
+          <button class="audit-reset" id="resetFilters" type="button">Clear</button>
+        </form>
+
+        <section class="audit-panel" aria-labelledby="auditTableTitle">
+          <div class="audit-panel-heading">
+            <h2 id="auditTableTitle">Activity history</h2>
+            <span id="auditCount" aria-live="polite"></span>
+          </div>
+          <div class="audit-message" id="auditMessage" role="status" hidden></div>
+          <div class="audit-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">When</th>
+                  <th scope="col">Action</th>
+                  <th scope="col">Entity</th>
+                  <th scope="col">Record</th>
+                  <th scope="col">Actor</th>
+                </tr>
+              </thead>
+              <tbody id="auditRows"></tbody>
+            </table>
+          </div>
+          <nav class="audit-pagination" id="pagination" aria-label="Audit log pages"></nav>
+        </section>
+      </main>
+    </div>
+    <script src="../shared/auth-client.js"></script>
+    <script src="../shared/auth-guard.js"></script>
+    <script src="../shared/sidebar.js"></script>
+    <script src="script.js"></script>
+  </body>
+</html>

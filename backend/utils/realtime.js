@@ -11,8 +11,8 @@
 const { WebSocketServer } = require('ws');
 const jwt = require('jsonwebtoken');
 const db = require('./db');
+const { jwtSecret: JWT_SECRET } = require('../config');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 const CHATS = 'chats';
 
 // Every open, authenticated socket. Each one is tagged with the
@@ -24,14 +24,33 @@ const clients = new Set();
 function initRealtime(server) {
   const wss = new WebSocketServer({ server, path: '/ws' });
 
-  wss.on('connection', (ws, req) => {
-    let user;
+  wss.on('connection', async (ws, req) => {
+    let payload;
     try {
       const url = new URL(req.url, 'http://localhost');
       const token = url.searchParams.get('token');
-      user = jwt.verify(token, JWT_SECRET);
+      payload = jwt.verify(token, JWT_SECRET);
     } catch {
       ws.close(4001, 'Invalid or missing token');
+      return;
+    }
+
+    let user;
+    try {
+      const storedUser = await db.findById('users', payload.id);
+      if (
+        !storedUser ||
+        (storedUser.status && storedUser.status !== 'active') ||
+        (payload.tokenVersion || 0) !== (storedUser.tokenVersion || 0)
+      ) {
+        ws.close(4001, 'Invalid or expired session');
+        return;
+      }
+      const { passwordHash, ...safeUser } = storedUser;
+      user = safeUser;
+    } catch (error) {
+      console.error('[realtime] connection authentication failed:', error);
+      ws.close(1011, 'Unable to authenticate');
       return;
     }
 
@@ -53,7 +72,9 @@ function initRealtime(server) {
       if (msg.type === 'join' && msg.chatId) {
         try {
           const chat = await db.findById(CHATS, msg.chatId);
-          const allowed = chat && (user.role === 'admin' || chat.memberIds.includes(user.id));
+          const allowed = chat &&
+            chat.schoolId === user.schoolId &&
+            (user.role === 'admin' || (chat.memberIds || []).includes(user.id));
           ws.chatId = allowed ? msg.chatId : null;
         } catch {
           ws.chatId = null;

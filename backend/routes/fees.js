@@ -1,4 +1,5 @@
 const createCrudRouter = require("../utils/crudRouterFactory");
+const db = require("../utils/db");
 
 // Each fee record: { id, studentId, studentName, class, amount, due, status }
 module.exports = createCrudRouter("fees", {
@@ -15,11 +16,20 @@ module.exports = createCrudRouter("fees", {
   searchFields: ["studentName", "class", "status"],
   filterFields: ["status", "class"],
   sortFields: ["studentName", "amount", "due", "createdAt"],
-  validate: async (fee) => {
+  validate: async (fee, { user }) => {
     if (!Number.isFinite(Number(fee.amount)) || Number(fee.amount) < 0) {
       const error = new Error("Fee amount must be zero or greater.");
       error.statusCode = 400;
       error.code = "INVALID_FEE_AMOUNT";
+      throw error;
+    }
+    const student = fee.studentId
+      ? await db.findById("students", fee.studentId)
+      : null;
+    if (!student || student.schoolId !== user.schoolId) {
+      const error = new Error("Student record not found.");
+      error.statusCode = 404;
+      error.code = "STUDENT_NOT_FOUND";
       throw error;
     }
     if (

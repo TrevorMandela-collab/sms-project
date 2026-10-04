@@ -1,15 +1,30 @@
 const express = require("express");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
-const { v4: uuidv4 } = require("uuid");
 const db = require("../utils/db");
 const { signToken, requireAuth, requireRole } = require("../middleware/auth");
+const {
+  authRateLimit,
+  loginRateLimit,
+  passwordResetRateLimit,
+} = require("../middleware/rateLimiter");
+const { sendPasswordResetEmail } = require("../utils/email");
+const { recordAuditEvent } = require("../utils/auditLog");
 
 const router = express.Router();
 const COLLECTION = "users";
 
 // Valid roles for this system
 const ROLES = ["admin", "teacher", "parent", "student"];
+const PASSWORD_MIN_LENGTH = 12;
+
+function passwordIsValid(password) {
+  return (
+    typeof password === "string" &&
+    password.length >= PASSWORD_MIN_LENGTH &&
+    Buffer.byteLength(password, "utf8") <= 72
+  );
+}
 
 // Wraps an async handler so a thrown/rejected error becomes a 500
 // instead of an unhandled rejection that hangs the request.
@@ -35,6 +50,7 @@ function safe(handler) {
  */
 router.post(
   "/register",
+  authRateLimit,
   safe(async (req, res) => {
     const { name, email, password, role, childIds, teacherId, schoolName } =
       req.body;
@@ -58,12 +74,12 @@ router.post(
         },
       });
     }
-    if (password.length < 6) {
+    if (!passwordIsValid(password)) {
       return res.status(400).json({
         success: false,
         error: {
           code: "WEAK_PASSWORD",
-          message: "Password must be at least 6 characters.",
+          message: `Password must be at least ${PASSWORD_MIN_LENGTH} characters and no more than 72 bytes.`,
         },
       });
     }
@@ -98,12 +114,18 @@ router.post(
         const jwt = require("jsonwebtoken");
         const { JWT_SECRET } = require("../middleware/auth");
         const payload = jwt.verify(token, JWT_SECRET);
-        if (payload.role !== "admin") {
+        const creator = await db.findById(COLLECTION, payload.id);
+        if (
+          creator?.role !== "admin" ||
+          creator.status !== "active" ||
+          !creator.schoolId ||
+          (payload.tokenVersion || 0) !== (creator.tokenVersion || 0)
+        ) {
           return res
             .status(403)
             .json({ error: "Only an admin can create new accounts." });
         }
-        adminSchoolId = payload.schoolId || null;
+        adminSchoolId = creator.schoolId;
       } catch {
         return res
           .status(403)
@@ -117,8 +139,33 @@ router.post(
         .json({ error: "An account with that email already exists." });
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
-    const schoolId = isFirstUser ? uuidv4() : adminSchoolId;
+    if (role === "parent" && childIds !== undefined) {
+      if (!Array.isArray(childIds)) {
+        return res.status(400).json({ error: "childIds must be an array." });
+      }
+      const students = await db.readAll("students");
+      const linkedStudents = new Set(
+        students
+          .filter((student) => student.schoolId === adminSchoolId)
+          .map((student) => student.id),
+      );
+      if (!childIds.every((id) => linkedStudents.has(id))) {
+        return res.status(404).json({
+          error: "One or more selected children were not found in your school.",
+        });
+      }
+    }
+    if (role === "teacher" && teacherId) {
+      const teacher = await db.findById("teachers", teacherId);
+      if (!teacher || teacher.schoolId !== adminSchoolId) {
+        return res.status(404).json({
+          error: "Teacher record not found in your school.",
+        });
+      }
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const schoolId = isFirstUser ? crypto.randomUUID() : adminSchoolId;
     if (isFirstUser) {
       await db.insert("schools", {
         id: schoolId,
@@ -128,7 +175,7 @@ router.post(
       });
     }
     const newUser = {
-      id: uuidv4(),
+      id: crypto.randomUUID(),
       name,
       email,
       passwordHash,
@@ -138,6 +185,7 @@ router.post(
       teacherId: role === "teacher" ? teacherId || null : null,
       status: "active",
       suspendedUntil: null,
+      tokenVersion: 0,
       createdAt: new Date().toISOString(),
     };
 
@@ -148,6 +196,13 @@ router.post(
 
     const token = signToken(newUser);
     const { passwordHash: _, ...safeUser } = newUser;
+    await recordAuditEvent(req, {
+      action: "USER_CREATED",
+      entityType: "user",
+      entityId: newUser.id,
+      metadata: { role: newUser.role },
+      actor: safeUser,
+    });
     res.status(201).json({ user: safeUser, token, isFirstAdmin: isFirstUser });
   }),
 );
@@ -161,6 +216,7 @@ router.post(
  */
 router.post(
   "/register-with-code",
+  authRateLimit,
   safe(async (req, res) => {
     const { code, name, email, password, role: requestedRole } = req.body;
     if (!code || !name || !email || !password) {
@@ -168,12 +224,21 @@ router.post(
         .status(400)
         .json({ error: "code, name, email, and password are required." });
     }
+    if (!passwordIsValid(password)) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: "WEAK_PASSWORD",
+          message: `Password must be at least ${PASSWORD_MIN_LENGTH} characters and no more than 72 bytes.`,
+        },
+      });
+    }
 
     const codes = await db.readAll("invite-codes");
     const invite = codes.find(
       (c) => c.code.toUpperCase() === String(code).trim().toUpperCase(),
     );
-    if (!invite) {
+    if (!invite || !invite.schoolId) {
       return res.status(404).json({ error: "Invalid invite code." });
     }
     if (invite.used) {
@@ -198,9 +263,30 @@ router.post(
 
     if (role === "student") {
       const student = await db.findById("students", invite.studentId);
-      if (!student) {
+      if (!student || student.schoolId !== invite.schoolId) {
         return res.status(404).json({
           error: "The student record for this code no longer exists.",
+        });
+      }
+    }
+    if (role === "teacher" && invite.teacherId) {
+      const teacher = await db.findById("teachers", invite.teacherId);
+      if (!teacher || teacher.schoolId !== invite.schoolId) {
+        return res.status(404).json({
+          error: "The teacher record for this code no longer exists.",
+        });
+      }
+    }
+    if (role === "parent" && Array.isArray(invite.childIds)) {
+      const students = await db.readAll("students");
+      const linkedStudents = new Set(
+        students
+          .filter((student) => student.schoolId === invite.schoolId)
+          .map((student) => student.id),
+      );
+      if (!invite.childIds.every((id) => linkedStudents.has(id))) {
+        return res.status(404).json({
+          error: "One or more linked students no longer belong to this school.",
         });
       }
     }
@@ -212,9 +298,9 @@ router.post(
         .json({ error: "An account with that email already exists." });
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(password, 12);
     const newUser = {
-      id: uuidv4(),
+      id: crypto.randomUUID(),
       name,
       email,
       passwordHash,
@@ -225,6 +311,7 @@ router.post(
       childIds: role === "parent" ? invite.childIds || [] : [],
       status: "active",
       suspendedUntil: null,
+      tokenVersion: 0,
       createdAt: new Date().toISOString(),
     };
     await db.insert(COLLECTION, newUser);
@@ -236,6 +323,13 @@ router.post(
 
     const token = signToken(newUser);
     const { passwordHash: _, ...safeUser } = newUser;
+    await recordAuditEvent(req, {
+      action: "USER_ACTIVATED",
+      entityType: "user",
+      entityId: newUser.id,
+      metadata: { role: newUser.role },
+      actor: safeUser,
+    });
     res.status(201).json({ user: safeUser, token });
   }),
 );
@@ -245,6 +339,7 @@ router.post(
  */
 router.post(
   "/login",
+  loginRateLimit,
   safe(async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) {
@@ -285,9 +380,20 @@ router.post(
       user.status = "active";
       user.suspendedUntil = null;
     }
+    if (user.status && user.status !== "active") {
+      return res.status(403).json({
+        error: "This account is not active. Contact your school admin.",
+      });
+    }
 
     const token = signToken(user);
     const { passwordHash: _, ...safeUser } = user;
+    await recordAuditEvent(req, {
+      action: "LOGIN",
+      entityType: "user",
+      entityId: user.id,
+      actor: safeUser,
+    });
     res.json({ user: safeUser, token });
   }),
 );
@@ -299,6 +405,7 @@ router.post(
  */
 router.post(
   "/forgot-password",
+  passwordResetRateLimit,
   safe(async (req, res) => {
     const { email } = req.body || {};
     const normalized = typeof email === "string" ? email.trim().toLowerCase() : "";
@@ -323,13 +430,12 @@ router.post(
     }
 
     const token = crypto.randomBytes(32).toString("hex");
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     const resetRecord = {
-      id: uuidv4(),
+      id: crypto.randomUUID(),
       userId: user.id,
-      token,
+      tokenHash: crypto.createHash("sha256").update(token).digest("hex"),
       createdAt: new Date().toISOString(),
-      expiresAt,
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
       used: false,
     };
 
@@ -340,12 +446,23 @@ router.post(
     }
 
     await db.insert("password-resets", resetRecord);
+    try {
+      await sendPasswordResetEmail({ email: user.email, name: user.name, token });
+    } catch (error) {
+      console.error("[auth] password reset email delivery failed:", error.message);
+    }
 
-    return res.json({
+    const response = {
       success: true,
       message: "If an account exists for that email, a reset link has been sent.",
-      token,
-    });
+    };
+    if (
+      process.env.NODE_ENV !== "production" &&
+      process.env.EMAIL_PROVIDER !== "smtp"
+    ) {
+      response.token = token;
+    }
+    return res.json(response);
   }),
 );
 
@@ -355,25 +472,26 @@ router.post(
  */
 router.post(
   "/reset-password",
+  passwordResetRateLimit,
   safe(async (req, res) => {
     const { token, password } = req.body || {};
 
-    if (!token || !password || String(password).length < 6) {
+    if (!token || !passwordIsValid(password)) {
       return res.status(400).json({
         success: false,
         error: {
           code: "INVALID_RESET_REQUEST",
-          message: "A valid reset token and a password with at least 6 characters are required.",
+          message: `A valid reset token and a password with at least ${PASSWORD_MIN_LENGTH} characters are required.`,
         },
       });
     }
 
-    const resetTokens = await db.readAll("password-resets");
-    const resetRequest = resetTokens.find(
-      (record) => record.token === String(token) && !record.used && new Date(record.expiresAt) > new Date(),
+    const tokenHash = crypto.createHash("sha256").update(String(token)).digest("hex");
+    const completedReset = await db.completePasswordReset(
+      tokenHash,
+      await bcrypt.hash(password, 12),
     );
-
-    if (!resetRequest) {
+    if (!completedReset) {
       return res.status(410).json({
         success: false,
         error: {
@@ -382,28 +500,69 @@ router.post(
         },
       });
     }
+    const user = completedReset.user;
+    await recordAuditEvent(req, {
+      action: "PASSWORD_RESET",
+      entityType: "user",
+      entityId: user.id,
+      actor: user,
+    });
+    return res.json({
+      success: true,
+      message: "Your password has been updated successfully.",
+    });
+  }),
+);
 
-    const user = await db.findById(COLLECTION, resetRequest.userId);
-    if (!user) {
-      return res.status(404).json({
+router.post(
+  "/password/change",
+  requireAuth,
+  authRateLimit,
+  safe(async (req, res) => {
+    const { currentPassword, newPassword } = req.body || {};
+    if (!currentPassword || !passwordIsValid(newPassword)) {
+      return res.status(400).json({
         success: false,
         error: {
-          code: "USER_NOT_FOUND",
-          message: "The account for this reset request no longer exists.",
+          code: "INVALID_PASSWORD_CHANGE",
+          message: `Provide your current password and a new password of at least ${PASSWORD_MIN_LENGTH} characters.`,
         },
       });
     }
 
-    const passwordHash = await bcrypt.hash(String(password), 10);
-    await db.update(COLLECTION, user.id, { passwordHash });
-    await db.update("password-resets", resetRequest.id, {
-      used: true,
-      usedAt: new Date().toISOString(),
-    });
+    const user = await db.findById(COLLECTION, req.user.id);
+    if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: "CURRENT_PASSWORD_INVALID",
+          message: "The current password is incorrect.",
+        },
+      });
+    }
+    if (await bcrypt.compare(newPassword, user.passwordHash)) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: "PASSWORD_UNCHANGED",
+          message: "Choose a new password that differs from your current password.",
+        },
+      });
+    }
 
-    return res.json({
+    await db.update(COLLECTION, user.id, {
+      passwordHash: await bcrypt.hash(newPassword, 12),
+      tokenVersion: (user.tokenVersion || 0) + 1,
+    });
+    await recordAuditEvent(req, {
+      action: "PASSWORD_CHANGED",
+      entityType: "user",
+      entityId: user.id,
+      actor: user,
+    });
+    res.json({
       success: true,
-      message: "Your password has been updated successfully.",
+      message: "Your password has been changed. Sign in again with the new password.",
     });
   }),
 );
@@ -415,6 +574,25 @@ router.get("/me", requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
 
+router.post(
+  "/logout",
+  requireAuth,
+  safe(async (req, res) => {
+    await db.update(COLLECTION, req.user.id, {
+      tokenVersion: (req.user.tokenVersion || 0) + 1,
+    });
+    await recordAuditEvent(req, {
+      action: "LOGOUT",
+      entityType: "user",
+      entityId: req.user.id,
+    });
+    res.json({
+      success: true,
+      message: "All active sessions for this account have been invalidated.",
+    });
+  }),
+);
+
 /**
  * GET /api/auth/users  (admin only — manage accounts/roles)
  */
@@ -423,7 +601,9 @@ router.get(
   requireAuth,
   requireRole("admin"),
   safe(async (req, res) => {
-    const users = (await db.readAll(COLLECTION)).map(
+    const users = (await db.readAll(COLLECTION))
+      .filter((user) => user.schoolId === req.user.schoolId)
+      .map(
       ({ passwordHash, ...safe }) => safe,
     );
     res.json(users);
@@ -444,8 +624,20 @@ router.patch(
         .status(400)
         .json({ error: `role must be one of: ${ROLES.join(", ")}` });
     }
-    const updated = await db.update(COLLECTION, req.params.id, { role });
-    if (!updated) return res.status(404).json({ error: "User not found." });
+    const existing = await db.findById(COLLECTION, req.params.id);
+    if (!existing || existing.schoolId !== req.user.schoolId) {
+      return res.status(404).json({ error: "User not found." });
+    }
+    const updated = await db.update(COLLECTION, req.params.id, {
+      role,
+      tokenVersion: (existing.tokenVersion || 0) + 1,
+    });
+    await recordAuditEvent(req, {
+      action: "USER_ROLE_UPDATED",
+      entityType: "user",
+      entityId: existing.id,
+      metadata: { role },
+    });
     const { passwordHash, ...safe } = updated;
     res.json(safe);
   }),
@@ -467,7 +659,9 @@ router.patch(
   safe(async (req, res) => {
     const { name, email, childIds, teacherId, studentId } = req.body;
     const existing = await db.findById(COLLECTION, req.params.id);
-    if (!existing) return res.status(404).json({ error: "User not found." });
+    if (!existing || existing.schoolId !== req.user.schoolId) {
+      return res.status(404).json({ error: "User not found." });
+    }
 
     if (email && email.toLowerCase() !== existing.email.toLowerCase()) {
       const users = await db.readAll(COLLECTION);
@@ -488,14 +682,51 @@ router.patch(
     if (name !== undefined) updates.name = name.trim();
     if (email !== undefined) updates.email = email.trim();
     if (existing.role === "parent" && childIds !== undefined)
-      updates.childIds = childIds;
+      if (Array.isArray(childIds)) {
+        const students = await db.readAll("students");
+        const linkedStudents = new Set(
+          students
+            .filter((student) => student.schoolId === req.user.schoolId)
+            .map((student) => student.id),
+        );
+        if (!childIds.every((id) => linkedStudents.has(id))) {
+          return res.status(404).json({
+            error: "One or more selected children were not found in your school.",
+          });
+        }
+        updates.childIds = childIds;
+      } else {
+        return res.status(400).json({ error: "childIds must be an array." });
+      }
     if (existing.role === "teacher" && teacherId !== undefined)
-      updates.teacherId = teacherId || null;
+      if (teacherId) {
+        const teacher = await db.findById("teachers", teacherId);
+        if (!teacher || teacher.schoolId !== req.user.schoolId) {
+          return res.status(404).json({ error: "Teacher record not found." });
+        }
+        updates.teacherId = teacherId;
+      } else {
+        updates.teacherId = null;
+      }
     if (existing.role === "student" && studentId !== undefined)
-      updates.studentId = studentId || null;
+      if (studentId) {
+        const student = await db.findById("students", studentId);
+        if (!student || student.schoolId !== req.user.schoolId) {
+          return res.status(404).json({ error: "Student record not found." });
+        }
+        updates.studentId = studentId;
+      } else {
+        updates.studentId = null;
+      }
 
+    updates.tokenVersion = (existing.tokenVersion || 0) + 1;
     const updated = await db.update(COLLECTION, req.params.id, updates);
     const { passwordHash: _, ...safeUser } = updated;
+    await recordAuditEvent(req, {
+      action: "USER_UPDATED",
+      entityType: "user",
+      entityId: existing.id,
+    });
     res.json(safeUser);
   }),
 );
@@ -523,12 +754,34 @@ router.patch(
         .status(400)
         .json({ error: "status must be 'active' or 'suspended'." });
     }
+    if (
+      suspendedUntil !== undefined &&
+      suspendedUntil !== null &&
+      (typeof suspendedUntil !== "string" ||
+        Number.isNaN(Date.parse(suspendedUntil)))
+    ) {
+      return res.status(400).json({
+        error: "suspendedUntil must be a valid date or null.",
+      });
+    }
     const updates = {
       status,
       suspendedUntil: status === "suspended" ? suspendedUntil || null : null,
     };
+    const existing = await db.findById(COLLECTION, req.params.id);
+    if (!existing || existing.schoolId !== req.user.schoolId) {
+      return res.status(404).json({ error: "User not found." });
+    }
+    updates.tokenVersion = (existing.tokenVersion || 0) + 1;
     const updated = await db.update(COLLECTION, req.params.id, updates);
-    if (!updated) return res.status(404).json({ error: "User not found." });
+    await recordAuditEvent(req, {
+      action: status === "suspended" ? "USER_SUSPENDED" : "USER_REACTIVATED",
+      entityType: "user",
+      entityId: existing.id,
+      metadata: status === "suspended" && suspendedUntil
+        ? { suspendedUntil }
+        : {},
+    });
     const { passwordHash, ...safeUser } = updated;
     res.json(safeUser);
   }),
@@ -548,8 +801,17 @@ router.delete(
         error: "You can't delete your own account while logged in as it.",
       });
     }
+    const existing = await db.findById(COLLECTION, req.params.id);
+    if (!existing || existing.schoolId !== req.user.schoolId) {
+      return res.status(404).json({ error: "User not found." });
+    }
     const removed = await db.remove(COLLECTION, req.params.id);
     if (!removed) return res.status(404).json({ error: "User not found." });
+    await recordAuditEvent(req, {
+      action: "USER_DELETED",
+      entityType: "user",
+      entityId: existing.id,
+    });
     res.status(204).end();
   }),
 );

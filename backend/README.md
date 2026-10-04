@@ -7,9 +7,9 @@ exams, timetable, and library.
 ## Setup
 
 ```bash
-cd sms-backend
+cd backend
 npm install
-cp .env.example .env      # then edit JWT_SECRET and optionally DATABASE_URL
+cp .env.example .env      # set a unique JWT_SECRET before starting
 npm start                 # or: npm run dev (auto-restarts on file changes)
 ```
 
@@ -28,12 +28,42 @@ is never read there, only local `.env` files are).
 Without `DATABASE_URL`, local development automatically uses SQLite at
 `backend/data/sms.sqlite`. You can override that location with `SQLITE_PATH`.
 
+To seed an empty development database, set `DEMO_SEED_PASSWORD` to a unique
+password of at least 12 characters, then run `npm run seed`. The command only
+runs when `NODE_ENV=development`, refuses partial/conflicting seed data, and
+can be safely run again after the complete demo set has been created.
+
 Server runs on `http://localhost:4000` by default. Health check:
 `GET /api/health`. Watch the startup logs for `[db] Connected and schema
 ready.` — if you instead see `[db] FAILED to connect`, `DATABASE_URL` is
 missing or wrong.
 
+### Environment and production
+
+`backend/.env.example` lists the supported variables. Production requires:
+
+- `NODE_ENV=production`
+- `DATABASE_URL` for PostgreSQL
+- `JWT_SECRET` with at least 32 random characters
+- `FRONTEND_URL` with one or more comma-separated HTTPS frontend origins
+- `EMAIL_PROVIDER=smtp`, `EMAIL_FROM`, and SMTP host/user/password settings
+
+The API refuses to start in production when these security-critical settings
+are missing. Configure the backend as a Node service (for example, Render);
+Netlify should host only the static frontend. The browser's API base URL is
+configured by `frontend/shared/auth-client.js` and currently defaults to the
+deployed API URL; local development can override it with
+`localStorage.sms_api_base`. Set `TRUST_PROXY_HOPS` only when the API is behind
+a known proxy, and use the actual deployment hop count so IP-based rate limits
+do not trust client-supplied forwarding headers.
+
 ## Data storage
+
+**Migration status: not yet normalized.** The current API still uses the
+legacy JSON `store` table described below. This is a prototype persistence
+layer, not the requested relational production schema. Do not treat setting
+`DATABASE_URL` as having migrated existing data; relational migrations and a
+repeatable legacy-data conversion are still required.
 
 Records live in a single `store` table, one row per record, keyed by
 `(collection, id)` with the record itself stored as JSON. Postgres is used
@@ -63,16 +93,39 @@ Four roles: `admin`, `teacher`, `parent`, `student`.
   don't self-register with a password up front — see the invite-code flow
   below.
 
+School-owned CRUD and account-management requests are scoped on the server to
+the authenticated account's current `schoolId`. Role and school claims are
+refreshed from the database for each API request. The system still has only
+these four roles; granular permissions and the additional school roles remain
+future work.
+
 ## Auth flow
 
 ```
 POST /api/auth/register            { name, email, password, role, childIds? }  (admin/teacher/parent — admin-only after bootstrap)
 POST /api/auth/register-with-code  { code, name, email, password }             (student — public, redeems an invite code)
 POST /api/auth/login               { email, password }  -> { user, token }
+POST /api/auth/logout              (invalidates all account sessions)
+POST /api/auth/password/change     { currentPassword, newPassword }
+POST /api/auth/forgot-password    { email }
+POST /api/auth/reset-password     { token, password }
+GET  /api/audit-logs?page=1&limit=25&action=&entityType=&from=&to= (school admin only)
 GET  /api/auth/me                  (requires Bearer token)
 ```
 
 Every other route requires `Authorization: Bearer <token>`.
+
+New passwords must be at least 12 characters and fit bcrypt's 72-byte input
+limit. Reset tokens are stored only as SHA-256 hashes, expire after 30 minutes,
+and can be used once. Production reset messages use SMTP, and the API returns
+the same generic response whether or not the email exists. Development/test
+responses include the reset token only when SMTP is not configured.
+Authentication endpoints are rate limited per client IP.
+
+Successful generic CRUD creates, updates, and deletes, account lifecycle
+changes, sign-ins/outs, password changes/resets, and account creation are
+recorded in `audit-logs`. The school-admin endpoint supports action, entity,
+date-range, and pagination filters; it does not expose other schools' events.
 
 ## Student invite codes
 
@@ -153,7 +206,7 @@ When `page` or `limit` is supplied, the response is `{ data, meta }` with
 # 1. Register the first admin
 curl -X POST http://localhost:4000/api/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"name":"Admin","email":"admin@school.test","password":"secret123","role":"admin"}'
+  -d '{"name":"Admin","email":"admin@school.test","password":"replace-with-a-long-unique-password","role":"admin","schoolName":"Demo School"}'
 
 # copy the "token" from the response, then:
 
@@ -163,12 +216,12 @@ curl -X POST http://localhost:4000/api/students \
   -d '{"name":"Amina Otieno","class":"Grade 7B"}'
 ```
 
-## What's next
+## Remaining architecture work
 
-This backend is ready for the frontend modules to call instead of
-`localStorage`. Each frontend module's `readStore()`/`writeStore()` helper
-functions can be swapped for `fetch()` calls to these endpoints, sending the
-JWT in the `Authorization` header.
+Some frontend dashboard content remains static. Relational database
+migrations, a repeatable legacy-data conversion, granular permissions, audit
+logs, role-specific dashboards, and the remaining finance/academic workflows
+are not yet implemented.
 
 ## Local verification
 

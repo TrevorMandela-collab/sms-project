@@ -9,21 +9,28 @@ const { getTeacherClassIds } = require('../utils/teacherScope');
 // parents/students only see assignments for the classes their child(ren) —
 // or they themselves — are actually in.
 
-async function classNamesForStudentIds(studentIds) {
+async function classIdsForStudentIds(studentIds, schoolId) {
   const students = await db.readAll('students');
+  const linkedStudents = students.filter(
+    student => studentIds.includes(student.id) && student.schoolId === schoolId
+  );
+  const classes = await db.readAll('classes');
+  const classIds = new Set(linkedStudents.map(student => student.classId).filter(Boolean));
+  const legacyClassNames = new Set(
+    linkedStudents.filter(student => !student.classId).map(student => student.class).filter(Boolean)
+  );
   return new Set(
-    students.filter(s => studentIds.includes(s.id)).map(s => s.class).filter(Boolean)
+    classes
+      .filter(classRecord =>
+        classRecord.schoolId === schoolId &&
+        (classIds.has(classRecord.id) || legacyClassNames.has(classRecord.name))
+      )
+      .map(classRecord => classRecord.id)
   );
 }
 
-async function classIdsForClassNames(classNames) {
-  const classes = await db.readAll('classes');
-  return new Set(classes.filter(c => classNames.has(c.name)).map(c => c.id));
-}
-
-async function scopeByStudentIds(records, studentIds) {
-  const classNames = await classNamesForStudentIds(studentIds);
-  const classIds = await classIdsForClassNames(classNames);
+async function scopeByStudentIds(records, studentIds, schoolId) {
+  const classIds = await classIdsForStudentIds(studentIds, schoolId);
   return records.filter(a => classIds.has(a.classId));
 }
 
@@ -34,8 +41,8 @@ module.exports = createCrudRouter('assignments', {
     update: ['admin', 'teacher'],
     delete: ['admin', 'teacher'],
   },
-  scopeForParent: (records, user) => scopeByStudentIds(records, user.childIds || []),
-  scopeForStudent: (records, user) => scopeByStudentIds(records, user.studentId ? [user.studentId] : []),
+  scopeForParent: (records, user) => scopeByStudentIds(records, user.childIds || [], user.schoolId),
+  scopeForStudent: (records, user) => scopeByStudentIds(records, user.studentId ? [user.studentId] : [], user.schoolId),
   scopeForTeacher: async (records, user) => {
     const classIds = await getTeacherClassIds(user);
     return records.filter(a => classIds.has(a.classId));
@@ -43,6 +50,27 @@ module.exports = createCrudRouter('assignments', {
   writeGuardForTeacher: async (record, user) => {
     const classIds = await getTeacherClassIds(user);
     return classIds.has(record.classId);
+  },
+  validate: async (assignment, { user }) => {
+    const classes = await db.readAll('classes');
+    const schoolClasses = classes.filter(
+      schoolClass => schoolClass.schoolId === user.schoolId
+    );
+    if (!assignment.classId || !schoolClasses.some(schoolClass => schoolClass.id === assignment.classId)) {
+      const error = new Error('Class not found in your school.');
+      error.statusCode = 404;
+      error.code = 'CLASS_NOT_FOUND';
+      throw error;
+    }
+    if (assignment.subjectId) {
+      const subject = await db.findById('subjects', assignment.subjectId);
+      if (!subject || subject.schoolId !== user.schoolId) {
+        const error = new Error('Subject not found in your school.');
+        error.statusCode = 404;
+        error.code = 'SUBJECT_NOT_FOUND';
+        throw error;
+      }
+    }
   },
   seed: [],
 });

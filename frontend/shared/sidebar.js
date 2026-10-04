@@ -51,6 +51,13 @@
           href: "../manage-logins/index.html",
           roles: ["admin"],
         },
+        {
+          key: "audit-logs",
+          label: "Audit Logs",
+          icon: "≋",
+          href: "../audit-logs/index.html",
+          roles: ["admin"],
+        },
       ],
     },
     {

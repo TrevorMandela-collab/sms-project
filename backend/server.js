@@ -3,6 +3,7 @@ const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
+const config = require('./config');
 
 const authRoutes = require('./routes/auth');
 const studentsRoutes = require('./routes/students');
@@ -22,15 +23,24 @@ const eventsRoutes = require('./routes/events');
 const inviteCodesRoutes = require('./routes/invite-codes');
 const chatsRoutes = require('./routes/chats');
 const schoolsRoutes = require('./routes/schools');
+const auditLogsRoutes = require('./routes/audit-logs');
 const db = require('./utils/db');
 const { initRealtime } = require('./utils/realtime');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-app.use(cors());
-app.use(express.json());
-app.use(morgan('dev'));
+if (config.trustProxyHops) app.set('trust proxy', config.trustProxyHops);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      callback(null, !origin || config.allowedOrigins.has(origin));
+    },
+  }),
+);
+app.use(express.json({ limit: '1mb' }));
+app.use(morgan(config.isProduction ? 'combined' : 'dev'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 
@@ -52,6 +62,7 @@ app.use('/api/events', eventsRoutes);
 app.use('/api/invite-codes', inviteCodesRoutes);
 app.use('/api/chats', chatsRoutes);
 app.use('/api/schools', schoolsRoutes);
+app.use('/api/audit-logs', auditLogsRoutes);
 
 // 404 fallback for unmatched API routes
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
@@ -59,7 +70,13 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 // Generic error handler
 app.use((err, req, res, next) => {
   console.error(err);
-  res.status(500).json({ error: 'Something went wrong on the server.' });
+  res.status(500).json({
+    success: false,
+    error: {
+      code: 'INTERNAL_ERROR',
+      message: 'Something went wrong on the server.',
+    },
+  });
 });
 
 // Use an explicit http server (rather than app.listen directly) so the
@@ -67,19 +84,17 @@ app.use((err, req, res, next) => {
 const server = http.createServer(app);
 initRealtime(server);
 
-server.listen(PORT, () => {
-  console.log(`SMS backend running on http://localhost:${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/api/health`);
-  console.log(`WebSocket endpoint: ws://localhost:${PORT}/ws`);
-});
-
-// Confirm the database is actually reachable at startup — this is the
-// single most common thing to break when deploying (missing/incorrect
-// DATABASE_URL), so fail loudly rather than silently 500ing on the
-// first real request.
 db.ensureSchema()
-  .then(() => console.log('[db] Connected and schema ready.'))
+  .then(() => {
+    console.log('[db] Connected and schema ready.');
+    server.listen(PORT, () => {
+      console.log(`SMS backend running on http://localhost:${PORT}`);
+      console.log(`Health check: http://localhost:${PORT}/api/health`);
+      console.log(`WebSocket endpoint: ws://localhost:${PORT}/ws`);
+    });
+  })
   .catch(err => {
     console.error('[db] FAILED to connect/initialize database:', err.message);
     console.error('[db] Check that DATABASE_URL is set to a valid Postgres connection string.');
+    process.exitCode = 1;
   });

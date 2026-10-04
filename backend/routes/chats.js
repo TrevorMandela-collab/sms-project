@@ -1,6 +1,5 @@
 const express = require('express');
 const crypto = require('crypto');
-const { v4: uuidv4 } = require('uuid');
 const db = require('../utils/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { broadcastToChat } = require('../utils/realtime');
@@ -22,6 +21,12 @@ function safe(handler) {
   };
 }
 
+function safeMiddleware(handler) {
+  return (req, res, next) => {
+    Promise.resolve(handler(req, res, next)).catch(next);
+  };
+}
+
 function generateInviteCode() {
   const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   let raw = '';
@@ -30,13 +35,32 @@ function generateInviteCode() {
 }
 
 async function requireMembership(req, res, next) {
-  const chat = await db.findById(CHATS, req.params.chatId || req.params.id);
-  if (!chat) return res.status(404).json({ error: 'Chat not found.' });
-  if (req.user.role !== 'admin' && !chat.memberIds.includes(req.user.id)) {
-    return res.status(403).json({ error: "You're not a member of this chat." });
+  try {
+    const chat = await db.findById(CHATS, req.params.chatId || req.params.id);
+    if (!chat || chat.schoolId !== req.user.schoolId) {
+      return res.status(404).json({ error: 'Chat not found.' });
+    }
+    if (req.user.role !== 'admin' && !(chat.memberIds || []).includes(req.user.id)) {
+      return res.status(404).json({ error: 'Chat not found.' });
+    }
+    req.chat = chat;
+    next();
+  } catch (error) {
+    next(error);
   }
-  req.chat = chat;
-  next();
+}
+
+async function requireSchoolChat(req, res, next) {
+  try {
+    const chat = await db.findById(CHATS, req.params.id);
+    if (!chat || chat.schoolId !== req.user.schoolId) {
+      return res.status(404).json({ error: 'Chat not found.' });
+    }
+    req.chat = chat;
+    next();
+  } catch (error) {
+    next(error);
+  }
 }
 
 /**
@@ -45,9 +69,10 @@ async function requireMembership(req, res, next) {
  */
 router.get('/', requireAuth, safe(async (req, res) => {
   const chats = await db.readAll(CHATS);
-  const visible = req.user.role === 'admin'
-    ? chats
-    : chats.filter(c => c.memberIds.includes(req.user.id));
+  const visible = req.user.schoolId ? chats.filter(chat =>
+    chat.schoolId === req.user.schoolId &&
+    (req.user.role === 'admin' || (chat.memberIds || []).includes(req.user.id))
+  ) : [];
   res.json(visible);
 }));
 
@@ -60,10 +85,23 @@ router.post('/', requireAuth, requireRole('admin'), safe(async (req, res) => {
   if (!name || !name.trim()) {
     return res.status(400).json({ error: 'A chat name is required.' });
   }
+  const requestedMemberIds = Array.isArray(memberIds)
+    ? [...new Set(memberIds)]
+    : [];
+  const users = await db.readAll('users');
+  const sameSchoolUsers = new Set(
+    users
+      .filter(user => user.schoolId === req.user.schoolId)
+      .map(user => user.id)
+  );
+  if (!requestedMemberIds.every(id => sameSchoolUsers.has(id))) {
+    return res.status(404).json({ error: 'One or more chat members were not found in your school.' });
+  }
   const chat = {
-    id: uuidv4(),
+    id: crypto.randomUUID(),
     name: name.trim(),
-    memberIds: Array.isArray(memberIds) ? [...new Set([...memberIds, req.user.id])] : [req.user.id],
+    memberIds: [...new Set([...requestedMemberIds, req.user.id])],
+    schoolId: req.user.schoolId,
     createdBy: req.user.id,
     createdAt: new Date().toISOString(),
     inviteCode: generateInviteCode(),
@@ -76,11 +114,26 @@ router.post('/', requireAuth, requireRole('admin'), safe(async (req, res) => {
  * PATCH /api/chats/:id  (admin only)
  * body: { name?, memberIds? } — replace name and/or the full member list.
  */
-router.patch('/:id', requireAuth, requireRole('admin'), safe(async (req, res) => {
+router.patch('/:id', requireAuth, requireRole('admin'), safeMiddleware(requireSchoolChat), safe(async (req, res) => {
   const { name, memberIds } = req.body;
   const updates = {};
   if (name !== undefined) updates.name = name.trim();
-  if (memberIds !== undefined) updates.memberIds = memberIds;
+  if (memberIds !== undefined) {
+    if (!Array.isArray(memberIds)) {
+      return res.status(400).json({ error: 'memberIds must be an array.' });
+    }
+    const requestedMemberIds = [...new Set(memberIds)];
+    const users = await db.readAll('users');
+    const sameSchoolUsers = new Set(
+      users
+        .filter(user => user.schoolId === req.user.schoolId)
+        .map(user => user.id)
+    );
+    if (!requestedMemberIds.every(id => sameSchoolUsers.has(id))) {
+      return res.status(404).json({ error: 'One or more chat members were not found in your school.' });
+    }
+    updates.memberIds = [...new Set([...requestedMemberIds, req.user.id])];
+  }
   const updated = await db.update(CHATS, req.params.id, updates);
   if (!updated) return res.status(404).json({ error: 'Chat not found.' });
   res.json(updated);
@@ -90,7 +143,7 @@ router.patch('/:id', requireAuth, requireRole('admin'), safe(async (req, res) =>
  * POST /api/chats/:id/regenerate-code  (admin only)
  * Rotates the invite code (e.g. if it leaked / needs revoking).
  */
-router.post('/:id/regenerate-code', requireAuth, requireRole('admin'), safe(async (req, res) => {
+router.post('/:id/regenerate-code', requireAuth, requireRole('admin'), safeMiddleware(requireSchoolChat), safe(async (req, res) => {
   const updated = await db.update(CHATS, req.params.id, { inviteCode: generateInviteCode() });
   if (!updated) return res.status(404).json({ error: 'Chat not found.' });
   res.json(updated);
@@ -100,7 +153,7 @@ router.post('/:id/regenerate-code', requireAuth, requireRole('admin'), safe(asyn
  * DELETE /api/chats/:id  (admin only)
  * Deletes the chat and all of its messages.
  */
-router.delete('/:id', requireAuth, requireRole('admin'), safe(async (req, res) => {
+router.delete('/:id', requireAuth, requireRole('admin'), safeMiddleware(requireSchoolChat), safe(async (req, res) => {
   const removed = await db.remove(CHATS, req.params.id);
   if (!removed) return res.status(404).json({ error: 'Chat not found.' });
   const messages = await db.readAll(MESSAGES);
@@ -117,7 +170,10 @@ router.post('/join', requireAuth, safe(async (req, res) => {
   const { code } = req.body;
   if (!code) return res.status(400).json({ error: 'An invite code is required.' });
   const chats = await db.readAll(CHATS);
-  const chat = chats.find(c => c.inviteCode.toUpperCase() === String(code).trim().toUpperCase());
+  const chat = chats.find(c =>
+    c.schoolId === req.user.schoolId &&
+    c.inviteCode.toUpperCase() === String(code).trim().toUpperCase()
+  );
   if (!chat) return res.status(404).json({ error: 'That invite code is not valid.' });
   if (chat.memberIds.includes(req.user.id)) {
     return res.json(chat); // already a member, no-op
@@ -129,7 +185,7 @@ router.post('/join', requireAuth, safe(async (req, res) => {
 /**
  * GET /api/chats/:chatId/messages  (members + admin only)
  */
-router.get('/:chatId/messages', requireAuth, requireMembership, safe(async (req, res) => {
+router.get('/:chatId/messages', requireAuth, safeMiddleware(requireMembership), safe(async (req, res) => {
   const messages = await db.readAll(MESSAGES);
   const thread = messages
     .filter(m => m.chatId === req.params.chatId)
@@ -141,7 +197,7 @@ router.get('/:chatId/messages', requireAuth, requireMembership, safe(async (req,
  * POST /api/chats/:chatId/messages  (members + admin only)
  * body: { text }
  */
-router.post('/:chatId/messages', requireAuth, requireMembership, safe(async (req, res) => {
+router.post('/:chatId/messages', requireAuth, safeMiddleware(requireMembership), safe(async (req, res) => {
   const { text, replyToId } = req.body;
   if (!text || !text.trim()) {
     return res.status(400).json({ error: 'Message text is required.' });
@@ -152,7 +208,7 @@ router.post('/:chatId/messages', requireAuth, requireMembership, safe(async (req
     if (target && target.chatId === req.params.chatId) resolvedReplyToId = replyToId;
   }
   const message = {
-    id: uuidv4(),
+    id: crypto.randomUUID(),
     chatId: req.params.chatId,
     senderId: req.user.id,
     senderName: req.user.name,
@@ -173,7 +229,7 @@ router.post('/:chatId/messages', requireAuth, requireMembership, safe(async (req
  * PATCH /api/chats/:chatId/messages/:messageId
  * Edit your own message. body: { text }
  */
-router.patch('/:chatId/messages/:messageId', requireAuth, requireMembership, safe(async (req, res) => {
+router.patch('/:chatId/messages/:messageId', requireAuth, safeMiddleware(requireMembership), safe(async (req, res) => {
   const { text } = req.body;
   if (!text || !text.trim()) {
     return res.status(400).json({ error: 'Message text is required.' });
@@ -203,7 +259,7 @@ router.patch('/:chatId/messages/:messageId', requireAuth, requireMembership, saf
  * else's. Soft-delete: keeps the record — so any replies quoting it
  * still resolve — but clears the text.
  */
-router.delete('/:chatId/messages/:messageId', requireAuth, requireMembership, safe(async (req, res) => {
+router.delete('/:chatId/messages/:messageId', requireAuth, safeMiddleware(requireMembership), safe(async (req, res) => {
   const message = await db.findById(MESSAGES, req.params.messageId);
   if (!message || message.chatId !== req.params.chatId) {
     return res.status(404).json({ error: 'Message not found.' });

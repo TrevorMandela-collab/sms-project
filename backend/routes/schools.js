@@ -1,5 +1,5 @@
 const express = require("express");
-const { v4: uuidv4 } = require("uuid");
+const crypto = require("crypto");
 const db = require("../utils/db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 
@@ -13,7 +13,7 @@ async function ensureAdminSchool(req) {
     if (existingSchool) return existingSchool;
   }
 
-  const schoolId = req.user.schoolId || uuidv4();
+  const schoolId = req.user.schoolId || crypto.randomUUID();
   const fallbackSchool = await db.findById("schools", schoolId);
   if (!fallbackSchool) {
     await db.insert("schools", {

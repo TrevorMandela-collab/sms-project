@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Choose a new password — School Management</title>
+    <link rel="stylesheet" href="../shared/theme.css" />
+    <link rel="stylesheet" href="../login/style.css" />
+  </head>
+  <body>
+    <main class="login-wrap">
+      <section class="login-card" aria-labelledby="pageTitle">
+        <h1 class="chalk-title login-title" id="pageTitle">Choose a new password</h1>
+        <p class="chalk-sub login-sub">Use at least 12 characters for your new password.</p>
+        <p id="resetStatus" class="error-banner" role="status" hidden></p>
+        <form id="resetPasswordForm">
+          <div class="form-field">
+            <label for="password">New password</label>
+            <input id="password" name="password" type="password" required minlength="12" autocomplete="new-password" />
+          </div>
+          <button class="chalk-btn login-submit" type="submit">Reset password</button>
+        </form>
+        <p class="login-footnote">
+          <a class="link-btn" href="../login/index.html">Back to sign in</a>
+        </p>
+      </section>
+    </main>
+    <script src="../shared/auth-client.js"></script>
+    <script src="script.js"></script>
+  </body>
+</html>

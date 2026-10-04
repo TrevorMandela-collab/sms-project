@@ -44,6 +44,11 @@
           </div>
           <button type="submit" class="chalk-btn login-submit">Sign In</button>
         </form>
+        <p class="login-footnote">
+          <a class="link-btn" href="../forgot-password/index.html">
+            Forgot your password?
+          </a>
+        </p>
 
         <!-- First-run bootstrap admin form (shown automatically if no accounts exist) -->
         <form id="bootstrapForm" style="display: none">
@@ -66,7 +71,7 @@
           </div>
           <div class="form-field">
             <label for="bootPassword">Password</label>
-            <input type="password" id="bootPassword" required minlength="6" />
+            <input type="password" id="bootPassword" required minlength="12" />
           </div>
           <button type="submit" class="chalk-btn login-submit">
             Create School &amp; Admin Account

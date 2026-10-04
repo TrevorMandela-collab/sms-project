@@ -1,7 +1,8 @@
 const express = require("express");
-const { v4: uuidv4 } = require("uuid");
+const crypto = require("crypto");
 const db = require("./db");
 const { requireAuth, requireRole } = require("../middleware/auth");
+const { recordAuditEvent } = require("./auditLog");
 
 /**
  * Builds a collection CRUD router with role scoping, tenant isolation,
@@ -23,11 +24,10 @@ function createCrudRouter(collection, options = {}) {
   }
 
   async function applyScope(records, user) {
-    const schoolRecords = user.schoolId
-      ? records.filter(
-          (record) => !record.schoolId || record.schoolId === user.schoolId,
-        )
-      : records;
+    if (!user.schoolId) return [];
+    const schoolRecords = records.filter(
+      (record) => record.schoolId === user.schoolId,
+    );
     if (user.role === "parent" && options.scopeForParent)
       return options.scopeForParent(schoolRecords, user);
     if (user.role === "student" && options.scopeForStudent)
@@ -157,12 +157,12 @@ function createCrudRouter(collection, options = {}) {
           });
       if (!(await applyScope([record], req.user)).length) {
         return res
-          .status(403)
+          .status(404)
           .json({
             success: false,
             error: {
-              code: "FORBIDDEN",
-              message: "You are not authorized to view this record.",
+              code: "NOT_FOUND",
+              message: `${collection} record not found.`,
             },
           });
       }
@@ -176,6 +176,15 @@ function createCrudRouter(collection, options = {}) {
     requireAuth,
     requireRole(...permissions.create),
     safe(async (req, res) => {
+      if (!req.user.schoolId) {
+        return res.status(403).json({
+          success: false,
+          error: {
+            code: "SCHOOL_REQUIRED",
+            message: "Your account must be linked to a school to create records.",
+          },
+        });
+      }
       const {
         id,
         createdAt,
@@ -185,7 +194,7 @@ function createCrudRouter(collection, options = {}) {
         schoolId,
         ...input
       } = req.body || {};
-      const candidate = { ...input, schoolId: req.user.schoolId || null };
+      const candidate = { ...input, schoolId: req.user.schoolId };
       if (options.validate)
         await options.validate(candidate, {
           operation: "create",
@@ -203,12 +212,17 @@ function createCrudRouter(collection, options = {}) {
           });
       }
       const record = {
-        id: uuidv4(),
+        id: crypto.randomUUID(),
         ...candidate,
         createdAt: new Date().toISOString(),
         createdBy: req.user.id,
       };
       await db.insert(collection, record);
+      await recordAuditEvent(req, {
+        action: `${collection.toUpperCase().replace(/-/g, "_")}_CREATED`,
+        entityType: collection,
+        entityId: record.id,
+      });
       res.status(201).json(record);
     }),
   );
@@ -232,12 +246,12 @@ function createCrudRouter(collection, options = {}) {
           });
       if (!(await applyScope([existing], req.user)).length) {
         return res
-          .status(403)
+          .status(404)
           .json({
             success: false,
             error: {
-              code: "FORBIDDEN",
-              message: "You are not authorized to modify this record.",
+              code: "NOT_FOUND",
+              message: `${collection} record not found.`,
             },
           });
       }
@@ -273,6 +287,11 @@ function createCrudRouter(collection, options = {}) {
         updatedAt: new Date().toISOString(),
         updatedBy: req.user.id,
       });
+      await recordAuditEvent(req, {
+        action: `${collection.toUpperCase().replace(/-/g, "_")}_UPDATED`,
+        entityType: collection,
+        entityId: req.params.id,
+      });
       res.json(updated);
     }),
   );
@@ -296,12 +315,12 @@ function createCrudRouter(collection, options = {}) {
           });
       if (!(await applyScope([existing], req.user)).length) {
         return res
-          .status(403)
+          .status(404)
           .json({
             success: false,
             error: {
-              code: "FORBIDDEN",
-              message: "You are not authorized to delete this record.",
+              code: "NOT_FOUND",
+              message: `${collection} record not found.`,
             },
           });
       }
@@ -327,6 +346,11 @@ function createCrudRouter(collection, options = {}) {
               message: `${collection} record not found.`,
             },
           });
+      await recordAuditEvent(req, {
+        action: `${collection.toUpperCase().replace(/-/g, "_")}_DELETED`,
+        entityType: collection,
+        entityId: req.params.id,
+      });
       res.status(204).end();
     }),
   );
