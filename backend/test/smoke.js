@@ -93,6 +93,28 @@ async function run() {
     const schoolData = await schoolProfile.json();
     assert.equal(schoolData.school.name, "Smoke School");
 
+    const db = new Database(databasePath);
+    const userRecord = db
+      .prepare("SELECT data FROM store WHERE collection = ? AND id = ?")
+      .get("users", auth.user.id);
+    const user = JSON.parse(userRecord.data);
+    user.schoolId = null;
+    db.prepare("UPDATE store SET data = ? WHERE collection = ? AND id = ?").run(
+      JSON.stringify(user),
+      "users",
+      auth.user.id,
+    );
+    db.close();
+
+    const repairedProfile = await request("/schools/me", { headers });
+    assert.equal(
+      repairedProfile.status,
+      200,
+      "admin without a linked school should still get a school profile",
+    );
+    const repairedSchool = await repairedProfile.json();
+    assert.ok(repairedSchool.school.id, "a fallback school should be created");
+
     const schoolUpdate = await request("/schools/me", {
       method: "PATCH",
       headers,

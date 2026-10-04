@@ -1,4 +1,5 @@
 const express = require("express");
+const { v4: uuidv4 } = require("uuid");
 const db = require("../utils/db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 
@@ -6,15 +7,39 @@ const router = express.Router();
 const safe = (handler) => (req, res, next) =>
   Promise.resolve(handler(req, res, next)).catch(next);
 
+async function ensureAdminSchool(req) {
+  if (req.user.schoolId) {
+    const existingSchool = await db.findById("schools", req.user.schoolId);
+    if (existingSchool) return existingSchool;
+  }
+
+  const schoolId = req.user.schoolId || uuidv4();
+  const fallbackSchool = await db.findById("schools", schoolId);
+  if (!fallbackSchool) {
+    await db.insert("schools", {
+      id: schoolId,
+      name: req.user.name ? `${req.user.name.split(" ")[0]}'s School` : "School",
+      createdBy: req.user.id,
+      createdAt: new Date().toISOString(),
+      settings: {},
+      onboardingCompleted: false,
+    });
+  }
+
+  if (!req.user.schoolId) {
+    await db.update("users", req.user.id, { schoolId });
+    req.user.schoolId = schoolId;
+  }
+
+  return db.findById("schools", schoolId);
+}
+
 router.get(
   "/me",
   requireAuth,
   requireRole("admin"),
   safe(async (req, res) => {
-    if (!req.user.schoolId) {
-      return res.status(404).json({ error: "School profile not found." });
-    }
-    const school = await db.findById("schools", req.user.schoolId);
+    const school = await ensureAdminSchool(req);
     if (!school) return res.status(404).json({ error: "School not found." });
     res.json({ school });
   }),
@@ -25,10 +50,7 @@ router.patch(
   requireAuth,
   requireRole("admin"),
   safe(async (req, res) => {
-    if (!req.user.schoolId) {
-      return res.status(404).json({ error: "School profile not found." });
-    }
-    const school = await db.findById("schools", req.user.schoolId);
+    const school = await ensureAdminSchool(req);
     if (!school) return res.status(404).json({ error: "School not found." });
 
     const {
