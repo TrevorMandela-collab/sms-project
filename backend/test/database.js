@@ -230,6 +230,44 @@ async function run() {
     Number((await db.all("SELECT COUNT(*) AS count FROM payments WHERE id = ?", ["payment-over-invoice"]))[0].count),
     0,
   );
+  const concurrentInvoiceAllocations = await Promise.allSettled(
+    ["payment-concurrent-a", "payment-concurrent-b"].map((id) =>
+      db.recordPaymentWithAllocations(
+        {
+          id,
+          schoolId: "school-1",
+          studentId: "student-1",
+          reference: `REF-${id}`,
+          amount: 10,
+          paidAt: financeStamp,
+        },
+        [{ id: `allocation-${id}`, invoiceId: invoice.id, amount: 10 }],
+      ),
+    ),
+  );
+  assert.equal(
+    concurrentInvoiceAllocations.filter((result) => result.status === "fulfilled").length,
+    1,
+  );
+  assert.equal(
+    concurrentInvoiceAllocations.filter(
+      (result) =>
+        result.status === "rejected" &&
+        result.reason.code === "INVOICE_BALANCE_EXCEEDED",
+    ).length,
+    1,
+  );
+  assert.equal(
+    Number(
+      (
+        await db.all(
+          "SELECT COALESCE(SUM(amount), 0) AS total FROM payment_allocations WHERE invoice_id = ?",
+          [invoice.id],
+        )
+      )[0].total,
+    ),
+    60,
+  );
   await assert.rejects(
     db.recordPaymentWithAllocations(
       {
