@@ -91,6 +91,9 @@ SQLite and PostgreSQL use the same table definitions and data mapping.
 `003_enforce_school_relationships.js` adds tenant-consistency enforcement.
 Use the same migration command against development, test, and production
 databases.
+The data layer also exposes atomic `createInvoiceWithItems` and
+`recordPaymentWithAllocations` operations. These are persistence primitives;
+they do not add a payment API route or change the existing fees API.
 
 ### Backup, migration, and recovery
 

@@ -135,6 +135,77 @@ async function run() {
   assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM schema_migrations"))[0].count), 3);
   assert.equal((await db.findChatByInviteCode("school-1", "chat-code")).id, "chat-1");
   assert.equal((await db.readByChatId("chat-1")).length, 1);
+  const financeStamp = new Date().toISOString();
+  const invoice = {
+    id: "invoice-with-items",
+    schoolId: "school-1",
+    studentId: "student-1",
+    amount: 60,
+    due: "2026-11-01",
+    status: "outstanding",
+    createdAt: financeStamp,
+  };
+  await db.createInvoiceWithItems(invoice, [
+    {
+      id: "invoice-item-1",
+      description: "Books",
+      quantity: 2,
+      unitAmount: 30,
+    },
+  ]);
+  assert.equal(
+    Number((await db.all("SELECT COUNT(*) AS count FROM invoice_items WHERE invoice_id = ?", ["invoice-with-items"]))[0].count),
+    1,
+  );
+  await assert.rejects(
+    db.createInvoiceWithItems(
+      { ...invoice, id: "invoice-rollback" },
+      [
+        {
+          id: "invoice-item-invalid",
+          feeStructureId: "missing-fee-structure",
+          description: "Invalid fee",
+          quantity: 1,
+          unitAmount: 1,
+        },
+      ],
+    ),
+    /FOREIGN KEY|foreign key/i,
+  );
+  assert.equal(await db.findById("fees", "invoice-rollback"), null);
+  await db.recordPaymentWithAllocations(
+    {
+      id: "payment-allocated",
+      schoolId: "school-1",
+      studentId: "student-1",
+      reference: "REF-ALLOCATED",
+      amount: 50,
+      paidAt: financeStamp,
+    },
+    [{ id: "payment-allocation-1", invoiceId: invoice.id, amount: 50 }],
+  );
+  assert.equal(
+    Number((await db.all("SELECT COUNT(*) AS count FROM payment_allocations WHERE payment_id = ?", ["payment-allocated"]))[0].count),
+    1,
+  );
+  await assert.rejects(
+    db.recordPaymentWithAllocations(
+      {
+        id: "payment-rollback",
+        schoolId: "school-1",
+        studentId: "student-1",
+        reference: "REF-ROLLBACK",
+        amount: 50,
+        paidAt: financeStamp,
+      },
+      [{ id: "payment-allocation-1", invoiceId: invoice.id, amount: 50 }],
+    ),
+    /UNIQUE|unique/i,
+  );
+  assert.equal(
+    Number((await db.all("SELECT COUNT(*) AS count FROM payments WHERE id = ?", ["payment-rollback"]))[0].count),
+    0,
+  );
   await db.migrate();
   assert.equal((await db.readAll("students")).length, 1);
   const failedMigration = spawnSync(

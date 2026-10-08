@@ -740,6 +740,142 @@ async function markPasswordResetsUsed(userId, usedAt) {
   return result.changes;
 }
 
+async function createInvoiceWithItems(invoice, items) {
+  if (
+    !invoice?.id ||
+    !invoice.schoolId ||
+    !invoice.studentId ||
+    !Number.isFinite(Number(invoice.amount)) ||
+    Number(invoice.amount) < 0
+  ) {
+    throw new TypeError("Invoice ID, school, student, and non-negative amount are required.");
+  }
+  if (!Array.isArray(items)) {
+    throw new TypeError("Invoice items must be an array.");
+  }
+  for (const item of items) {
+    if (
+      !item.id ||
+      typeof item.description !== "string" ||
+      !item.description.trim() ||
+      !Number.isFinite(Number(item.quantity ?? 1)) ||
+      Number(item.quantity ?? 1) <= 0 ||
+      !Number.isFinite(Number(item.unitAmount)) ||
+      Number(item.unitAmount) < 0
+    ) {
+      throw new TypeError("Invoice items require an ID, description, positive quantity, and non-negative unit amount.");
+    }
+  }
+
+  return transaction(async () => {
+    await insert("fees", invoice);
+    const createdAt = invoice.createdAt || new Date().toISOString();
+    for (const item of items) {
+      const values = {
+        id: item.id,
+        invoice_id: invoice.id,
+        fee_structure_id: item.feeStructureId || null,
+        description: item.description.trim(),
+        quantity: Number(item.quantity ?? 1),
+        unit_amount: Number(item.unitAmount),
+        created_at: item.createdAt || createdAt,
+        updated_at: item.updatedAt || item.createdAt || createdAt,
+      };
+      const sql = insertSql("invoice_items", values);
+      if (usePostgres) await queryPostgres(sql, Object.values(values));
+      else await querySqlite("run", sql, Object.values(values));
+    }
+    return { ...invoice, items };
+  });
+}
+
+async function recordPaymentWithAllocations(payment, allocations) {
+  if (
+    !payment?.id ||
+    !payment.schoolId ||
+    !payment.studentId ||
+    typeof payment.reference !== "string" ||
+    !payment.reference.trim()
+  ) {
+    throw new TypeError("Payment ID, school, student, and reference are required.");
+  }
+  if (!Array.isArray(allocations)) {
+    throw new TypeError("Payment allocations must be an array.");
+  }
+  const paymentAmount = Number(payment.amount);
+  const allocationTotal = allocations.reduce(
+    (total, allocation) => total + Number(allocation.amount),
+    0,
+  );
+  if (
+    !Number.isFinite(paymentAmount) ||
+    paymentAmount <= 0 ||
+    allocations.some(
+      (allocation) =>
+        !allocation.id ||
+        !allocation.invoiceId ||
+        !Number.isFinite(Number(allocation.amount)) ||
+        Number(allocation.amount) <= 0,
+    ) ||
+    allocationTotal > paymentAmount
+  ) {
+    throw new TypeError("Payment amount and allocations are invalid.");
+  }
+  if (new Set(allocations.map((allocation) => allocation.invoiceId)).size !== allocations.length) {
+    throw new TypeError("A payment may allocate to an invoice only once.");
+  }
+
+  return transaction(async () => {
+    const placeholder = (index) => usePostgres ? `$${index}` : "?";
+    for (const allocation of allocations) {
+      const values = [allocation.invoiceId, payment.schoolId, payment.studentId];
+      const sql = `SELECT id FROM invoices WHERE id = ${placeholder(1)} AND school_id = ${placeholder(2)} AND student_id = ${placeholder(3)}`;
+      const invoice = usePostgres
+        ? (await queryPostgres(sql, values)).rows[0]
+        : await querySqlite("get", sql, values);
+      if (!invoice) {
+        throw new Error("Payment allocation invoice was not found for this student and school.");
+      }
+    }
+
+    const values = {
+      id: payment.id,
+      school_id: payment.schoolId,
+      student_id: payment.studentId,
+      reference: payment.reference,
+      amount: paymentAmount,
+      method: payment.method || null,
+      paid_at: payment.paidAt || new Date().toISOString(),
+      created_at: payment.createdAt || new Date().toISOString(),
+      updated_at: payment.updatedAt || payment.createdAt || new Date().toISOString(),
+      extra_data: usePostgres
+        ? payment.extraData || {}
+        : JSON.stringify(payment.extraData || {}),
+    };
+    const insertPayment = insertSql("payments", values);
+    if (usePostgres) await queryPostgres(insertPayment, Object.values(values));
+    else await querySqlite("run", insertPayment, Object.values(values));
+
+    const createdAt = payment.createdAt || new Date().toISOString();
+    for (const allocation of allocations) {
+      const allocationValues = {
+        id: allocation.id,
+        payment_id: payment.id,
+        invoice_id: allocation.invoiceId,
+        amount: Number(allocation.amount),
+        created_at: allocation.createdAt || createdAt,
+      };
+      const insertAllocation = insertSql("payment_allocations", allocationValues);
+      if (usePostgres) {
+        await queryPostgres(insertAllocation, Object.values(allocationValues));
+      } else {
+        await querySqlite("run", insertAllocation, Object.values(allocationValues));
+      }
+    }
+    return { ...payment, amount: paymentAmount, allocations };
+  });
+}
+
 function columnExpression(collection, field) {
   if (!/^[A-Za-z][A-Za-z0-9]*$/.test(field)) {
   throw new TypeError("Invalid database field selector.");
@@ -1042,6 +1178,8 @@ module.exports = {
   findChatByInviteCode,
   readByChatId,
   markPasswordResetsUsed,
+  createInvoiceWithItems,
+  recordPaymentWithAllocations,
   count,
   listPage,
   findById,
