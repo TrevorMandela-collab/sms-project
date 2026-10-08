@@ -65,23 +65,19 @@ router.get("/", requireAuth, requireRole("admin"), async (req, res, next) => {
     const entityType = req.query.entityType
       ? String(req.query.entityType).trim().slice(0, 80)
       : null;
-    const records = (await db.readAll("audit-logs"))
-      .filter((record) => record.schoolId === req.user.schoolId)
-      .filter((record) => !action || record.action === action)
-      .filter((record) => !entityType || record.entityType === entityType)
-      .filter((record) => from === null || Date.parse(record.timestamp) >= from)
-      .filter((record) => to === null || Date.parse(record.timestamp) <= to)
-      .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp));
-
-    return res.json({
-      data: records.slice((page - 1) * limit, page * limit),
-      meta: {
-        page,
-        limit,
-        total: records.length,
-        pages: Math.ceil(records.length / limit),
-      },
+    const timestampRange = {};
+    if (from !== null) timestampRange.from = new Date(from).toISOString();
+    if (to !== null) timestampRange.to = new Date(to).toISOString();
+    const result = await db.listPage("audit-logs", {
+      schoolId: req.user.schoolId,
+      page,
+      limit,
+      filters: { action, entityType },
+      rangeFilters: { timestamp: timestampRange },
+      sortField: "timestamp",
+      descending: true,
     });
+    return res.json(result);
   } catch (error) {
     if (error.statusCode) {
       return res.status(error.statusCode).json({

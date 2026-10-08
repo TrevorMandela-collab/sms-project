@@ -68,6 +68,23 @@ async function run() {
   assert.equal(typeof (await db.readAll("exams"))[0].score, "number");
   assert.equal((await db.readAll("attendance"))[0].sessionKey, "daily");
   assert.equal((await db.readAll("library-loans"))[0].itemId, "book-1");
+  assert.equal(await db.count("students"), 1);
+  assert.equal(
+    (await db.findByIds("students", ["student-1"], "school-1")).length,
+    1,
+  );
+  assert.equal(
+    (await db.findByIds("students", ["student-1"], "other-school")).length,
+    0,
+  );
+  assert.equal(
+    (await db.findUserByEmail("ADMIN@example.test")).id,
+    "admin-1",
+  );
+  assert.equal(
+    (await db.readBySchool("users", "school-1")).length,
+    1,
+  );
   const studentPage = await db.listPage("students", {
     schoolId: "school-1",
     page: 1,

@@ -32,11 +32,18 @@ function safe(handler) {
   return (req, res) => {
     handler(req, res).catch((err) => {
       console.error("[auth] request failed:", err);
-      res.status(500).json({
+      const isUniqueViolation = [
+        "23505",
+        "SQLITE_CONSTRAINT_UNIQUE",
+        "SQLITE_CONSTRAINT_PRIMARYKEY",
+      ].includes(err.code);
+      res.status(isUniqueViolation ? 409 : 500).json({
         success: false,
         error: {
-          code: "INTERNAL_ERROR",
-          message: "The server could not complete that request.",
+          code: isUniqueViolation ? "DUPLICATE_RECORD" : "INTERNAL_ERROR",
+          message: isUniqueViolation
+            ? "A record with those details already exists."
+            : "The server could not complete that request.",
         },
       });
     });
@@ -84,8 +91,7 @@ router.post(
       });
     }
 
-    const users = await db.readAll(COLLECTION);
-    const isFirstUser = users.length === 0;
+    const isFirstUser = (await db.count(COLLECTION)) === 0;
     let adminSchoolId = null;
 
     if (isFirstUser && role !== "admin") {
@@ -133,7 +139,7 @@ router.post(
       }
     }
 
-    if (users.some((u) => u.email.toLowerCase() === email.toLowerCase())) {
+    if (await db.findUserByEmail(email, { includeDeleted: true })) {
       return res
         .status(409)
         .json({ error: "An account with that email already exists." });
@@ -143,11 +149,9 @@ router.post(
       if (!Array.isArray(childIds)) {
         return res.status(400).json({ error: "childIds must be an array." });
       }
-      const students = await db.readAll("students");
+      const students = await db.findByIds("students", childIds, adminSchoolId);
       const linkedStudents = new Set(
-        students
-          .filter((student) => student.schoolId === adminSchoolId)
-          .map((student) => student.id),
+        students.map((student) => student.id),
       );
       if (!childIds.every((id) => linkedStudents.has(id))) {
         return res.status(404).json({
@@ -235,10 +239,7 @@ router.post(
       });
     }
 
-    const codes = await db.readAll("invite-codes");
-    const invite = codes.find(
-      (c) => c.code.toUpperCase() === String(code).trim().toUpperCase(),
-    );
+    const invite = await db.findInviteByCode(String(code).trim());
     if (!invite || !invite.schoolId) {
       return res.status(404).json({ error: "Invalid invite code." });
     }
@@ -279,11 +280,13 @@ router.post(
       }
     }
     if (role === "parent" && Array.isArray(invite.childIds)) {
-      const students = await db.readAll("students");
+      const students = await db.findByIds(
+        "students",
+        invite.childIds,
+        invite.schoolId,
+      );
       const linkedStudents = new Set(
-        students
-          .filter((student) => student.schoolId === invite.schoolId)
-          .map((student) => student.id),
+        students.map((student) => student.id),
       );
       if (!invite.childIds.every((id) => linkedStudents.has(id))) {
         return res.status(404).json({
@@ -292,8 +295,7 @@ router.post(
       }
     }
 
-    const users = await db.readAll(COLLECTION);
-    if (users.some((u) => u.email.toLowerCase() === email.toLowerCase())) {
+    if (await db.findUserByEmail(email, { includeDeleted: true })) {
       return res
         .status(409)
         .json({ error: "An account with that email already exists." });
@@ -350,10 +352,7 @@ router.post(
         .json({ error: "email and password are required." });
     }
 
-    const users = await db.readAll(COLLECTION);
-    const user = users.find(
-      (u) => u.email.toLowerCase() === email.toLowerCase(),
-    );
+    const user = await db.findUserByEmail(email);
     if (!user) {
       return res.status(401).json({ error: "Invalid email or password." });
     }
@@ -422,8 +421,7 @@ router.post(
       });
     }
 
-    const users = await db.readAll(COLLECTION);
-    const user = users.find((candidate) => candidate.email.toLowerCase() === normalized);
+    const user = await db.findUserByEmail(normalized);
     if (!user) {
       return res.json({
         success: true,
@@ -441,13 +439,9 @@ router.post(
       used: false,
     };
 
-    const existingResets = await db.readAll("password-resets");
-    const oldTokens = existingResets.filter((record) => record.userId === user.id);
     await db.transaction(async () => {
       const usedAt = new Date().toISOString();
-      for (const oldToken of oldTokens) {
-        await db.update("password-resets", oldToken.id, { used: true, usedAt });
-      }
+      await db.markPasswordResetsUsed(user.id, usedAt);
       await db.insert("password-resets", resetRecord);
     });
     try {
@@ -610,8 +604,7 @@ router.get(
   requireAuth,
   requireRole("admin"),
   safe(async (req, res) => {
-    const users = (await db.readAll(COLLECTION))
-      .filter((user) => user.schoolId === req.user.schoolId)
+    const users = (await db.readBySchool(COLLECTION, req.user.schoolId))
       .map(
       ({ passwordHash, ...safe }) => safe,
     );
@@ -676,14 +669,10 @@ router.patch(
     }
 
     if (email && email.toLowerCase() !== existing.email.toLowerCase()) {
-      const users = await db.readAll(COLLECTION);
-      if (
-        users.some(
-          (u) =>
-            u.id !== existing.id &&
-            u.email.toLowerCase() === email.toLowerCase(),
-        )
-      ) {
+      const userWithEmail = await db.findUserByEmail(email, {
+        includeDeleted: true,
+      });
+      if (userWithEmail && userWithEmail.id !== existing.id) {
         return res
           .status(409)
           .json({ error: "Another account already uses that email." });
@@ -695,11 +684,13 @@ router.patch(
     if (email !== undefined) updates.email = email.trim();
     if (existing.role === "parent" && childIds !== undefined)
       if (Array.isArray(childIds)) {
-        const students = await db.readAll("students");
+        const students = await db.findByIds(
+          "students",
+          childIds,
+          req.user.schoolId,
+        );
         const linkedStudents = new Set(
-          students
-            .filter((student) => student.schoolId === req.user.schoolId)
-            .map((student) => student.id),
+          students.map((student) => student.id),
         );
         if (!childIds.every((id) => linkedStudents.has(id))) {
           return res.status(404).json({

@@ -377,8 +377,16 @@ async function run() {
     );
     const schoolUsersResponse = await request("/auth/users", { headers });
     const tenantAuditResponse = await request("/audit-logs", { headers });
+    const pagedAuditResponse = await request(
+      "/audit-logs?page=1&limit=1",
+      { headers },
+    );
     assert.equal(tenantAuditResponse.status, 200);
+    assert.equal(pagedAuditResponse.status, 200);
     const tenantAuditPage = await tenantAuditResponse.json();
+    const pagedAuditPage = await pagedAuditResponse.json();
+    assert.equal(pagedAuditPage.data.length <= 1, true);
+    assert.equal(pagedAuditPage.meta.limit, 1);
     assert.ok(
       tenantAuditPage.data.every(
         (event) => event.schoolId === auth.user.schoolId,

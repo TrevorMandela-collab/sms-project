@@ -589,6 +589,119 @@ async function readAll(collection) {
   return rows.map((row) => recordFromRow(collection, row));
 }
 
+async function readBySchool(collection, schoolId) {
+  await ensureSchema();
+  const mapping = mappingFor(collection);
+  if (!mapping || !mapping.fields.schoolId) {
+    throw new TypeError(`${collection} does not support school-scoped reads.`);
+  }
+  const prefix = collection === "library-loans" ? "library_loans." : "";
+  const select =
+    collection === "library-loans"
+      ? `SELECT library_loans.*, library_copies.book_id AS legacy_book_id, library_books.title AS legacy_book_title FROM library_loans JOIN library_copies ON library_copies.id = library_loans.copy_id JOIN library_books ON library_books.id = library_copies.book_id WHERE library_loans.school_id = $1${activeRecordClause(collection, prefix)}`
+      : `SELECT * FROM ${mapping.table} WHERE school_id = $1${activeRecordClause(collection)}`;
+  const sqliteSelect = select.replace("$1", "?");
+  const rows = usePostgres
+    ? (await queryPostgres(select, [schoolId])).rows
+    : await querySqlite("all", sqliteSelect, [schoolId]);
+  return rows.map((row) => recordFromRow(collection, row));
+}
+
+async function findByIds(collection, ids, schoolId) {
+  await ensureSchema();
+  const mapping = mappingFor(collection);
+  if (!mapping) {
+    throw new TypeError(`No relational mapping exists for ${collection}.`);
+  }
+  const uniqueIds = [...new Set(ids.filter((id) => typeof id === "string" && id.length))];
+  if (!uniqueIds.length) return [];
+  if (uniqueIds.length > 900) {
+    throw new RangeError("At most 900 IDs can be queried at once.");
+  }
+  const values = [...uniqueIds];
+  const placeholders = uniqueIds.map((_, index) =>
+    usePostgres ? `$${index + 1}` : "?",
+  );
+  const where = [`id IN (${placeholders.join(", ")})`];
+  if (schoolId !== undefined && mapping.fields.schoolId) {
+    values.push(schoolId);
+    where.push(`school_id = ${usePostgres ? `$${values.length}` : "?"}`);
+  }
+  const activeClause = activeRecordClause(collection);
+  const whereSql = `WHERE ${where.join(" AND ")}${activeClause}`;
+  const rows = usePostgres
+    ? (await queryPostgres(
+        `SELECT * FROM ${mapping.table} ${whereSql}`,
+        values,
+      )).rows
+    : await querySqlite("all", `SELECT * FROM ${mapping.table} ${whereSql}`, values);
+  return rows.map((row) => recordFromRow(collection, row));
+}
+
+async function count(collection) {
+  await ensureSchema();
+  const mapping = mappingFor(collection);
+  if (!mapping) {
+    throw new TypeError(`No relational mapping exists for ${collection}.`);
+  }
+  const result = usePostgres
+    ? await queryPostgres(`SELECT COUNT(*) AS total FROM ${mapping.table}`)
+    : await querySqlite("get", `SELECT COUNT(*) AS total FROM ${mapping.table}`);
+  return Number(usePostgres ? result.rows[0].total : result.total);
+}
+
+async function findUserByEmail(email, { includeDeleted = false } = {}) {
+  await ensureSchema();
+  const deletedClause = includeDeleted ? "" : " AND deleted_at IS NULL";
+  const rows = usePostgres
+    ? (await queryPostgres(
+        `SELECT * FROM users WHERE lower(email) = lower($1)${deletedClause} LIMIT 1`,
+        [email],
+      )).rows
+    : [
+        await querySqlite(
+          "get",
+          `SELECT * FROM users WHERE lower(email) = lower(?)${deletedClause} LIMIT 1`,
+          [email],
+        ),
+      ].filter(Boolean);
+  return recordFromRow("users", rows[0]);
+}
+
+async function findInviteByCode(code) {
+  await ensureSchema();
+  const rows = usePostgres
+    ? (await queryPostgres(
+        "SELECT * FROM invite_codes WHERE upper(code) = upper($1) LIMIT 1",
+        [code],
+      )).rows
+    : [
+        await querySqlite(
+          "get",
+          "SELECT * FROM invite_codes WHERE upper(code) = upper(?) LIMIT 1",
+          [code],
+        ),
+      ].filter(Boolean);
+  return recordFromRow("invite-codes", rows[0]);
+}
+
+async function markPasswordResetsUsed(userId, usedAt) {
+  await ensureSchema();
+  if (usePostgres) {
+    const result = await queryPostgres(
+      "UPDATE password_resets SET used_at = $1, updated_at = $1 WHERE user_id = $2 AND used_at IS NULL",
+      [usedAt, userId],
+    );
+    return result.rowCount;
+  }
+  const result = await querySqlite(
+    "run",
+    "UPDATE password_resets SET used_at = ?, updated_at = ? WHERE user_id = ? AND used_at IS NULL",
+    [usedAt, usedAt, userId],
+  );
+  return result.changes;
+}
+
 function columnExpression(collection, field) {
   if (!/^[A-Za-z][A-Za-z0-9]*$/.test(field)) {
   throw new TypeError("Invalid database field selector.");
@@ -609,6 +722,7 @@ async function listPage(collection, {
   page = 1,
   limit = 25,
   filters = {},
+  rangeFilters = {},
   search = "",
   searchFields = [],
   sortField = "",
@@ -637,6 +751,15 @@ async function listPage(collection, {
   for (const [field, value] of Object.entries(filters)) {
   if (value === undefined || value === null || value === "") continue;
   where.push(`${columnExpression(collection, field)} = ${addParameter(String(value))}`);
+  }
+  for (const [field, range] of Object.entries(rangeFilters)) {
+  const expression = columnExpression(collection, field);
+  if (range?.from !== undefined && range.from !== null) {
+    where.push(`${expression} >= ${addParameter(range.from)}`);
+  }
+  if (range?.to !== undefined && range.to !== null) {
+    where.push(`${expression} <= ${addParameter(range.to)}`);
+  }
   }
   const normalizedSearch = String(search).trim().toLowerCase();
   if (normalizedSearch && searchFields.length) {
@@ -874,6 +997,12 @@ async function close() {
 
 module.exports = {
   readAll,
+  readBySchool,
+  findByIds,
+  findUserByEmail,
+  findInviteByCode,
+  markPasswordResetsUsed,
+  count,
   listPage,
   findById,
   insert,
