@@ -217,11 +217,13 @@ function createCrudRouter(collection, options = {}) {
         createdAt: new Date().toISOString(),
         createdBy: req.user.id,
       };
-      await db.insert(collection, record);
-      await recordAuditEvent(req, {
-        action: `${collection.toUpperCase().replace(/-/g, "_")}_CREATED`,
-        entityType: collection,
-        entityId: record.id,
+      await db.transaction(async () => {
+        await db.insert(collection, record);
+        await recordAuditEvent(req, {
+          action: `${collection.toUpperCase().replace(/-/g, "_")}_CREATED`,
+          entityType: collection,
+          entityId: record.id,
+        });
       });
       res.status(201).json(record);
     }),
@@ -282,15 +284,18 @@ function createCrudRouter(collection, options = {}) {
             },
           });
       }
-      const updated = await db.update(collection, req.params.id, {
-        ...input,
-        updatedAt: new Date().toISOString(),
-        updatedBy: req.user.id,
-      });
-      await recordAuditEvent(req, {
-        action: `${collection.toUpperCase().replace(/-/g, "_")}_UPDATED`,
-        entityType: collection,
-        entityId: req.params.id,
+      const updated = await db.transaction(async () => {
+        const result = await db.update(collection, req.params.id, {
+          ...input,
+          updatedAt: new Date().toISOString(),
+          updatedBy: req.user.id,
+        });
+        await recordAuditEvent(req, {
+          action: `${collection.toUpperCase().replace(/-/g, "_")}_UPDATED`,
+          entityType: collection,
+          entityId: req.params.id,
+        });
+        return result;
       });
       res.json(updated);
     }),
@@ -335,7 +340,16 @@ function createCrudRouter(collection, options = {}) {
             },
           });
       }
-      const removed = await db.remove(collection, req.params.id);
+      const removed = await db.transaction(async () => {
+        const didRemove = await db.remove(collection, req.params.id);
+        if (!didRemove) return false;
+        await recordAuditEvent(req, {
+          action: `${collection.toUpperCase().replace(/-/g, "_")}_DELETED`,
+          entityType: collection,
+          entityId: req.params.id,
+        });
+        return true;
+      });
       if (!removed)
         return res
           .status(404)
@@ -346,11 +360,6 @@ function createCrudRouter(collection, options = {}) {
               message: `${collection} record not found.`,
             },
           });
-      await recordAuditEvent(req, {
-        action: `${collection.toUpperCase().replace(/-/g, "_")}_DELETED`,
-        entityType: collection,
-        entityId: req.params.id,
-      });
       res.status(204).end();
     }),
   );

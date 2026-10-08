@@ -27,6 +27,12 @@ is never read there, only local `.env` files are).
 
 Without `DATABASE_URL`, local development automatically uses SQLite at
 `backend/data/sms.sqlite`. You can override that location with `SQLITE_PATH`.
+PostgreSQL connections use a pool configured with `PG_POOL_MAX`,
+`PG_IDLE_TIMEOUT_MS`, and `PG_CONNECTION_TIMEOUT_MS`. SQLite enforces foreign
+keys and uses `SQLITE_BUSY_TIMEOUT_MS` to wait for a competing writer.
+Both adapters expose `db.transaction(async () => { ... })`; nested calls use
+savepoints, and related writes in the callback commit or roll back together.
+The server closes its database pool/connection on `SIGINT` and `SIGTERM`.
 
 To seed an empty development database, set `DEMO_SEED_PASSWORD` to a unique
 password of at least 12 characters, then run `npm run seed`. The command only
@@ -63,7 +69,10 @@ do not trust client-supplied forwarding headers.
 legacy JSON `store` table described below. This is a prototype persistence
 layer, not the requested relational production schema. Do not treat setting
 `DATABASE_URL` as having migrated existing data; relational migrations and a
-repeatable legacy-data conversion are still required.
+repeatable legacy-data conversion are still required. The migration runner,
+relational schema, and import process have not yet been added. The transaction
+and connection controls described above are foundations only; they do not
+replace the legacy storage architecture.
 
 Records live in a single `store` table, one row per record, keyed by
 `(collection, id)` with the record itself stored as JSON. Postgres is used

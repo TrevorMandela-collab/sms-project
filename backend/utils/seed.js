@@ -319,9 +319,11 @@ async function run() {
     throw new Error("A demo account email is already in use; no records were changed.");
   }
 
-  for (const { collection, record } of entries) {
-    await db.insert(collection, record);
-  }
+  await db.transaction(async () => {
+    for (const { collection, record } of entries) {
+      await db.insert(collection, record);
+    }
+  });
 
   console.log("Development demo data created for Green Valley Primary & JSS.");
   console.log("Admin: admin@greenvalley.example");

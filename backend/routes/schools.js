@@ -8,30 +8,32 @@ const safe = (handler) => (req, res, next) =>
   Promise.resolve(handler(req, res, next)).catch(next);
 
 async function ensureAdminSchool(req) {
-  if (req.user.schoolId) {
-    const existingSchool = await db.findById("schools", req.user.schoolId);
-    if (existingSchool) return existingSchool;
-  }
+  return db.transaction(async () => {
+    if (req.user.schoolId) {
+      const existingSchool = await db.findById("schools", req.user.schoolId);
+      if (existingSchool) return existingSchool;
+    }
 
-  const schoolId = req.user.schoolId || crypto.randomUUID();
-  const fallbackSchool = await db.findById("schools", schoolId);
-  if (!fallbackSchool) {
-    await db.insert("schools", {
-      id: schoolId,
-      name: req.user.name ? `${req.user.name.split(" ")[0]}'s School` : "School",
-      createdBy: req.user.id,
-      createdAt: new Date().toISOString(),
-      settings: {},
-      onboardingCompleted: false,
-    });
-  }
+    const schoolId = req.user.schoolId || crypto.randomUUID();
+    const fallbackSchool = await db.findById("schools", schoolId);
+    if (!fallbackSchool) {
+      await db.insert("schools", {
+        id: schoolId,
+        name: req.user.name ? `${req.user.name.split(" ")[0]}'s School` : "School",
+        createdBy: req.user.id,
+        createdAt: new Date().toISOString(),
+        settings: {},
+        onboardingCompleted: false,
+      });
+    }
 
-  if (!req.user.schoolId) {
-    await db.update("users", req.user.id, { schoolId });
-    req.user.schoolId = schoolId;
-  }
+    if (!req.user.schoolId) {
+      await db.update("users", req.user.id, { schoolId });
+      req.user.schoolId = schoolId;
+    }
 
-  return db.findById("schools", schoolId);
+    return db.findById("schools", schoolId);
+  });
 }
 
 router.get(

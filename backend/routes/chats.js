@@ -154,11 +154,15 @@ router.post('/:id/regenerate-code', requireAuth, requireRole('admin'), safeMiddl
  * Deletes the chat and all of its messages.
  */
 router.delete('/:id', requireAuth, requireRole('admin'), safeMiddleware(requireSchoolChat), safe(async (req, res) => {
-  const removed = await db.remove(CHATS, req.params.id);
+  const removed = await db.transaction(async () => {
+    const didRemove = await db.remove(CHATS, req.params.id);
+    if (!didRemove) return false;
+    const messages = await db.readAll(MESSAGES);
+    const toDelete = messages.filter(m => m.chatId === req.params.id);
+    for (const message of toDelete) await db.remove(MESSAGES, message.id);
+    return true;
+  });
   if (!removed) return res.status(404).json({ error: 'Chat not found.' });
-  const messages = await db.readAll(MESSAGES);
-  const toDelete = messages.filter(m => m.chatId === req.params.id);
-  for (const m of toDelete) await db.remove(MESSAGES, m.id);
   res.status(204).end();
 }));
 

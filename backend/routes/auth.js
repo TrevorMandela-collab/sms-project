@@ -166,14 +166,6 @@ router.post(
 
     const passwordHash = await bcrypt.hash(password, 12);
     const schoolId = isFirstUser ? crypto.randomUUID() : adminSchoolId;
-    if (isFirstUser) {
-      await db.insert("schools", {
-        id: schoolId,
-        name: schoolName.trim(),
-        createdBy: null,
-        createdAt: new Date().toISOString(),
-      });
-    }
     const newUser = {
       id: crypto.randomUUID(),
       name,
@@ -189,19 +181,28 @@ router.post(
       createdAt: new Date().toISOString(),
     };
 
-    await db.insert(COLLECTION, newUser);
-    if (isFirstUser) {
-      await db.update("schools", schoolId, { createdBy: newUser.id });
-    }
-
     const token = signToken(newUser);
     const { passwordHash: _, ...safeUser } = newUser;
-    await recordAuditEvent(req, {
-      action: "USER_CREATED",
-      entityType: "user",
-      entityId: newUser.id,
-      metadata: { role: newUser.role },
-      actor: safeUser,
+    await db.transaction(async () => {
+      if (isFirstUser) {
+        await db.insert("schools", {
+          id: schoolId,
+          name: schoolName.trim(),
+          createdBy: null,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      await db.insert(COLLECTION, newUser);
+      if (isFirstUser) {
+        await db.update("schools", schoolId, { createdBy: newUser.id });
+      }
+      await recordAuditEvent(req, {
+        action: "USER_CREATED",
+        entityType: "user",
+        entityId: newUser.id,
+        metadata: { role: newUser.role },
+        actor: safeUser,
+      });
     });
     res.status(201).json({ user: safeUser, token, isFirstAdmin: isFirstUser });
   }),
@@ -314,21 +315,22 @@ router.post(
       tokenVersion: 0,
       createdAt: new Date().toISOString(),
     };
-    await db.insert(COLLECTION, newUser);
-    await db.update("invite-codes", invite.id, {
-      used: true,
-      usedAt: new Date().toISOString(),
-      usedByUserId: newUser.id,
-    });
-
     const token = signToken(newUser);
     const { passwordHash: _, ...safeUser } = newUser;
-    await recordAuditEvent(req, {
-      action: "USER_ACTIVATED",
-      entityType: "user",
-      entityId: newUser.id,
-      metadata: { role: newUser.role },
-      actor: safeUser,
+    await db.transaction(async () => {
+      await db.insert(COLLECTION, newUser);
+      await db.update("invite-codes", invite.id, {
+        used: true,
+        usedAt: new Date().toISOString(),
+        usedByUserId: newUser.id,
+      });
+      await recordAuditEvent(req, {
+        action: "USER_ACTIVATED",
+        entityType: "user",
+        entityId: newUser.id,
+        metadata: { role: newUser.role },
+        actor: safeUser,
+      });
     });
     res.status(201).json({ user: safeUser, token });
   }),
@@ -441,11 +443,13 @@ router.post(
 
     const existingResets = await db.readAll("password-resets");
     const oldTokens = existingResets.filter((record) => record.userId === user.id);
-    for (const oldToken of oldTokens) {
-      await db.update("password-resets", oldToken.id, { used: true, usedAt: new Date().toISOString() });
-    }
-
-    await db.insert("password-resets", resetRecord);
+    await db.transaction(async () => {
+      const usedAt = new Date().toISOString();
+      for (const oldToken of oldTokens) {
+        await db.update("password-resets", oldToken.id, { used: true, usedAt });
+      }
+      await db.insert("password-resets", resetRecord);
+    });
     try {
       await sendPasswordResetEmail({ email: user.email, name: user.name, token });
     } catch (error) {
@@ -550,15 +554,18 @@ router.post(
       });
     }
 
-    await db.update(COLLECTION, user.id, {
-      passwordHash: await bcrypt.hash(newPassword, 12),
-      tokenVersion: (user.tokenVersion || 0) + 1,
-    });
-    await recordAuditEvent(req, {
-      action: "PASSWORD_CHANGED",
-      entityType: "user",
-      entityId: user.id,
-      actor: user,
+    const newPasswordHash = await bcrypt.hash(newPassword, 12);
+    await db.transaction(async () => {
+      await db.update(COLLECTION, user.id, {
+        passwordHash: newPasswordHash,
+        tokenVersion: (user.tokenVersion || 0) + 1,
+      });
+      await recordAuditEvent(req, {
+        action: "PASSWORD_CHANGED",
+        entityType: "user",
+        entityId: user.id,
+        actor: user,
+      });
     });
     res.json({
       success: true,
@@ -578,13 +585,15 @@ router.post(
   "/logout",
   requireAuth,
   safe(async (req, res) => {
-    await db.update(COLLECTION, req.user.id, {
-      tokenVersion: (req.user.tokenVersion || 0) + 1,
-    });
-    await recordAuditEvent(req, {
-      action: "LOGOUT",
-      entityType: "user",
-      entityId: req.user.id,
+    await db.transaction(async () => {
+      await db.update(COLLECTION, req.user.id, {
+        tokenVersion: (req.user.tokenVersion || 0) + 1,
+      });
+      await recordAuditEvent(req, {
+        action: "LOGOUT",
+        entityType: "user",
+        entityId: req.user.id,
+      });
     });
     res.json({
       success: true,
@@ -628,15 +637,18 @@ router.patch(
     if (!existing || existing.schoolId !== req.user.schoolId) {
       return res.status(404).json({ error: "User not found." });
     }
-    const updated = await db.update(COLLECTION, req.params.id, {
-      role,
-      tokenVersion: (existing.tokenVersion || 0) + 1,
-    });
-    await recordAuditEvent(req, {
-      action: "USER_ROLE_UPDATED",
-      entityType: "user",
-      entityId: existing.id,
-      metadata: { role },
+    const updated = await db.transaction(async () => {
+      const result = await db.update(COLLECTION, req.params.id, {
+        role,
+        tokenVersion: (existing.tokenVersion || 0) + 1,
+      });
+      await recordAuditEvent(req, {
+        action: "USER_ROLE_UPDATED",
+        entityType: "user",
+        entityId: existing.id,
+        metadata: { role },
+      });
+      return result;
     });
     const { passwordHash, ...safe } = updated;
     res.json(safe);
@@ -720,13 +732,16 @@ router.patch(
       }
 
     updates.tokenVersion = (existing.tokenVersion || 0) + 1;
-    const updated = await db.update(COLLECTION, req.params.id, updates);
-    const { passwordHash: _, ...safeUser } = updated;
-    await recordAuditEvent(req, {
-      action: "USER_UPDATED",
-      entityType: "user",
-      entityId: existing.id,
+    const updated = await db.transaction(async () => {
+      const result = await db.update(COLLECTION, req.params.id, updates);
+      await recordAuditEvent(req, {
+        action: "USER_UPDATED",
+        entityType: "user",
+        entityId: existing.id,
+      });
+      return result;
     });
+    const { passwordHash: _, ...safeUser } = updated;
     res.json(safeUser);
   }),
 );
@@ -773,14 +788,17 @@ router.patch(
       return res.status(404).json({ error: "User not found." });
     }
     updates.tokenVersion = (existing.tokenVersion || 0) + 1;
-    const updated = await db.update(COLLECTION, req.params.id, updates);
-    await recordAuditEvent(req, {
-      action: status === "suspended" ? "USER_SUSPENDED" : "USER_REACTIVATED",
-      entityType: "user",
-      entityId: existing.id,
-      metadata: status === "suspended" && suspendedUntil
-        ? { suspendedUntil }
-        : {},
+    const updated = await db.transaction(async () => {
+      const result = await db.update(COLLECTION, req.params.id, updates);
+      await recordAuditEvent(req, {
+        action: status === "suspended" ? "USER_SUSPENDED" : "USER_REACTIVATED",
+        entityType: "user",
+        entityId: existing.id,
+        metadata: status === "suspended" && suspendedUntil
+          ? { suspendedUntil }
+          : {},
+      });
+      return result;
     });
     const { passwordHash, ...safeUser } = updated;
     res.json(safeUser);
@@ -805,13 +823,17 @@ router.delete(
     if (!existing || existing.schoolId !== req.user.schoolId) {
       return res.status(404).json({ error: "User not found." });
     }
-    const removed = await db.remove(COLLECTION, req.params.id);
-    if (!removed) return res.status(404).json({ error: "User not found." });
-    await recordAuditEvent(req, {
-      action: "USER_DELETED",
-      entityType: "user",
-      entityId: existing.id,
+    const removed = await db.transaction(async () => {
+      const didRemove = await db.remove(COLLECTION, req.params.id);
+      if (!didRemove) return false;
+      await recordAuditEvent(req, {
+        action: "USER_DELETED",
+        entityType: "user",
+        entityId: existing.id,
+      });
+      return true;
     });
+    if (!removed) return res.status(404).json({ error: "User not found." });
     res.status(204).end();
   }),
 );

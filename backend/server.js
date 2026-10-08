@@ -69,7 +69,10 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
 // Generic error handler
 app.use((err, req, res, next) => {
-  console.error(err);
+  console.error("[api] request failed:", {
+    name: err?.name || "Error",
+    code: err?.code || "UNHANDLED_ERROR",
+  });
   res.status(500).json({
     success: false,
     error: {
@@ -84,6 +87,27 @@ app.use((err, req, res, next) => {
 const server = http.createServer(app);
 initRealtime(server);
 
+let shuttingDown = false;
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[server] ${signal} received; closing HTTP and database connections.`);
+  server.close(async (error) => {
+    if (error) {
+      console.error("[server] HTTP shutdown failed:", error.code || error.name);
+    }
+    try {
+      await db.close();
+    } catch (closeError) {
+      console.error("[db] shutdown failed:", closeError.code || closeError.name);
+      process.exitCode = 1;
+    }
+  });
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+
 db.ensureSchema()
   .then(() => {
     console.log('[db] Connected and schema ready.');
@@ -93,8 +117,15 @@ db.ensureSchema()
       console.log(`WebSocket endpoint: ws://localhost:${PORT}/ws`);
     });
   })
-  .catch(err => {
-    console.error('[db] FAILED to connect/initialize database:', err.message);
-    console.error('[db] Check that DATABASE_URL is set to a valid Postgres connection string.');
+  .catch(async (error) => {
+    console.error(
+      "[db] FAILED to initialize database:",
+      error.code || error.name || "unknown database error",
+    );
+    try {
+      await db.close();
+    } catch (closeError) {
+      console.error("[db] shutdown after initialization failure:", closeError.code || closeError.name);
+    }
     process.exitCode = 1;
   });
