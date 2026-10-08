@@ -91,6 +91,7 @@ const mappings = {
       studentId: "student_id",
       classId: "class_id",
       date: ["attendance_date", "date"],
+      sessionKey: "session_key",
       status: "status",
       markedBy: "marked_by",
     },
@@ -100,6 +101,7 @@ const mappings = {
     fields: {
       id: "id",
       schoolId: "school_id",
+      assessmentId: "assessment_id",
       studentId: "student_id",
       score: ["score", "number"],
       maxScore: ["max_score", "number"],
@@ -353,6 +355,7 @@ function mapRecord(collection, record, dialect, fallbackTimestamp = new Date().t
   if (collection === "classes") values.status = record.status || "active";
   if (collection === "students") values.status = record.status || "active";
   if (collection === "attendance" && values.status) values.status = String(values.status).toLowerCase();
+  if (collection === "attendance") values.session_key = values.session_key || "daily";
   if (collection === "library") {
     values.copies_total = values.copies_total ?? 0;
     values.copies_available = values.copies_available ?? values.copies_total;

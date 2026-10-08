@@ -803,6 +803,24 @@ async function run() {
       409,
       "duplicate attendance must be rejected",
     );
+    const concurrentAttendance = await Promise.all(
+      ["present", "late"].map((status) =>
+        request("/attendance", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            studentId: student.id,
+            date: "2026-09-25",
+            status,
+          }),
+        }),
+      ),
+    );
+    assert.deepEqual(
+      concurrentAttendance.map((response) => response.status).sort(),
+      [201, 409],
+      "concurrent duplicate attendance must yield one record and one conflict",
+    );
 
     const db = new Database(databasePath);
     db.prepare("UPDATE users SET school_id = NULL WHERE id = ?").run(auth.user.id);

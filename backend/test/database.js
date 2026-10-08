@@ -66,6 +66,7 @@ async function run() {
   assert.equal((await db.readAll("students"))[0].admissionNumber, "ADM-1");
   assert.equal((await db.readAll("exams"))[0].examName, "Quiz 1");
   assert.equal(typeof (await db.readAll("exams"))[0].score, "number");
+  assert.equal((await db.readAll("attendance"))[0].sessionKey, "daily");
   assert.equal((await db.readAll("library-loans"))[0].itemId, "book-1");
   const studentPage = await db.listPage("students", {
     schoolId: "school-1",
@@ -189,6 +190,49 @@ async function run() {
     ),
     /UNIQUE|unique/i,
   );
+  const concurrentPayments = await Promise.allSettled(
+    ["payment-concurrent-1", "payment-concurrent-2"].map((id) =>
+      db.execute(
+        "INSERT INTO payments (id, school_id, student_id, reference, amount, paid_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [id, "school-1", "student-1", "REF-CONCURRENT", 100, stamp, stamp, stamp],
+      ),
+    ),
+  );
+  assert.equal(
+    concurrentPayments.filter((result) => result.status === "fulfilled").length,
+    1,
+  );
+  assert.equal(
+    concurrentPayments.filter((result) => result.status === "rejected").length,
+    1,
+  );
+  const concurrentAttendance = await Promise.allSettled(
+    ["attendance-concurrent-1", "attendance-concurrent-2"].map((id) =>
+      db.insert("attendance", {
+        id,
+        schoolId: "school-1",
+        studentId: "student-1",
+        date: "2026-10-09",
+        status: "present",
+        createdAt: stamp,
+      }),
+    ),
+  );
+  assert.equal(
+    concurrentAttendance.filter((result) => result.status === "fulfilled").length,
+    1,
+  );
+  assert.equal(
+    concurrentAttendance.filter((result) => result.status === "rejected").length,
+    1,
+  );
+  await Promise.all([
+    db.update("exams", "result-unique", { score: 9 }),
+    db.update("exams", "result-unique", { grade: "A" }),
+  ]);
+  const updatedResult = await db.findById("exams", "result-unique");
+  assert.equal(updatedResult.score, 9);
+  assert.equal(updatedResult.grade, "A");
   await assert.rejects(
     db.execute(
       "INSERT INTO library_loans (id, school_id, copy_id, student_id, borrowed_at, due_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

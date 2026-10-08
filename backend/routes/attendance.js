@@ -22,7 +22,7 @@ module.exports = createCrudRouter("attendance", {
     const ids = await getTeacherStudentIds(user);
     return ids.has(record.studentId);
   },
-  validate: async (attendance, { operation, user }) => {
+  validate: async (attendance, { user, existing }) => {
     if (
       !["present", "absent", "late", "excused"].includes(
         String(attendance.status).toLowerCase(),
@@ -47,6 +47,14 @@ module.exports = createCrudRouter("attendance", {
       error.code = "INVALID_ATTENDANCE_RECORD";
       throw error;
     }
+    const sessionKey = String(attendance.sessionKey || "daily").trim();
+    if (!sessionKey || sessionKey.length > 50) {
+      const error = new Error("Attendance session must be between 1 and 50 characters.");
+      error.statusCode = 400;
+      error.code = "INVALID_ATTENDANCE_SESSION";
+      throw error;
+    }
+    attendance.sessionKey = sessionKey;
     const student = await db.findById("students", attendance.studentId);
     if (!student || student.schoolId !== user.schoolId) {
       const error = new Error("Student record not found.");
@@ -54,21 +62,23 @@ module.exports = createCrudRouter("attendance", {
       error.code = "STUDENT_NOT_FOUND";
       throw error;
     }
-    if (operation === "create") {
-      const records = await db.readAll("attendance");
-      const duplicate = records.some(
-        (record) =>
-          record.studentId === attendance.studentId &&
-          record.date === attendance.date,
+    const duplicates = await db.listPage("attendance", {
+      schoolId: user.schoolId,
+      page: 1,
+      limit: 2,
+      filters: {
+        studentId: attendance.studentId,
+        date: attendance.date,
+        sessionKey,
+      },
+    });
+    if (duplicates.data.some((record) => record.id !== existing?.id)) {
+      const error = new Error(
+        "Attendance for this student, date, and session already exists. Edit the existing record instead.",
       );
-      if (duplicate) {
-        const error = new Error(
-          "Attendance for this student and date already exists. Edit the existing record instead.",
-        );
-        error.statusCode = 409;
-        error.code = "DUPLICATE_ATTENDANCE";
-        throw error;
-      }
+      error.statusCode = 409;
+      error.code = "DUPLICATE_ATTENDANCE";
+      throw error;
     }
   },
   seed: [],

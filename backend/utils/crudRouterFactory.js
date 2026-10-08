@@ -37,9 +37,15 @@ function createCrudRouter(collection, options = {}) {
   }
 
   function sendError(res, error) {
-    const status = Number(error.statusCode) || 500;
+    const isUniqueViolation = [
+      "23505",
+      "SQLITE_CONSTRAINT_UNIQUE",
+      "SQLITE_CONSTRAINT_PRIMARYKEY",
+    ].includes(error.code);
+    const status = isUniqueViolation ? 409 : Number(error.statusCode) || 500;
     const code =
-      error.code || (status >= 500 ? "INTERNAL_ERROR" : "REQUEST_ERROR");
+      (isUniqueViolation ? "DUPLICATE_RECORD" : error.code) ||
+      (status >= 500 ? "INTERNAL_ERROR" : "REQUEST_ERROR");
     if (status >= 500) console.error(`[${collection}] request failed:`, error);
     res.status(status).json({
       success: false,
@@ -48,7 +54,9 @@ function createCrudRouter(collection, options = {}) {
         message:
           status >= 500
             ? "The server could not complete that request."
-            : error.message,
+            : isUniqueViolation
+              ? "A record with those details already exists."
+              : error.message,
       },
     });
   }

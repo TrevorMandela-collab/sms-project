@@ -682,16 +682,17 @@ async function listPage(collection, {
   };
 }
 
-async function findById(collection, id) {
+async function findById(collection, id, { forUpdate = false } = {}) {
   await ensureSchema();
   const mapping = mappingFor(collection);
   if (!mapping) {
     throw new TypeError(`No relational mapping exists for ${collection}.`);
   }
+  const lockClause = usePostgres && forUpdate ? " FOR UPDATE" : "";
   const select =
     collection === "library-loans"
-      ? "SELECT library_loans.*, library_copies.book_id AS legacy_book_id, library_books.title AS legacy_book_title FROM library_loans JOIN library_copies ON library_copies.id = library_loans.copy_id JOIN library_books ON library_books.id = library_copies.book_id WHERE library_loans.id = $1 AND library_loans.archived_at IS NULL"
-      : `SELECT * FROM ${mapping.table} WHERE id = $1${activeRecordClause(collection)}`;
+      ? `SELECT library_loans.*, library_copies.book_id AS legacy_book_id, library_books.title AS legacy_book_title FROM library_loans JOIN library_copies ON library_copies.id = library_loans.copy_id JOIN library_books ON library_books.id = library_copies.book_id WHERE library_loans.id = $1 AND library_loans.archived_at IS NULL${lockClause}`
+      : `SELECT * FROM ${mapping.table} WHERE id = $1${activeRecordClause(collection)}${lockClause}`;
   const sqliteSelect = select.replace("$1", "?");
   const rows = usePostgres
     ? (await queryPostgres(select, [id])).rows
@@ -736,7 +737,7 @@ async function update(collection, id, updates) {
     throw new TypeError(`No relational mapping exists for ${collection}.`);
   }
   return transaction(async () => {
-    const existing = await findById(collection, id);
+    const existing = await findById(collection, id, { forUpdate: true });
     if (!existing) return null;
     const updated = { ...existing, ...updates, id };
     const values = encodeRelationalRecord(collection, updated);
