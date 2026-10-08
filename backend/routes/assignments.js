@@ -35,6 +35,7 @@ async function scopeByStudentIds(records, studentIds, schoolId) {
 }
 
 module.exports = createCrudRouter('assignments', {
+  requiredFields: ['title'],
   permissions: {
     create: ['admin', 'teacher'],
     read: ['admin', 'teacher', 'parent', 'student'],
@@ -52,11 +53,10 @@ module.exports = createCrudRouter('assignments', {
     return classIds.has(record.classId);
   },
   validate: async (assignment, { user }) => {
-    const classes = await db.readAll('classes');
-    const schoolClasses = classes.filter(
-      schoolClass => schoolClass.schoolId === user.schoolId
-    );
-    if (!assignment.classId || !schoolClasses.some(schoolClass => schoolClass.id === assignment.classId)) {
+    const schoolClass = assignment.classId
+      ? await db.findById('classes', assignment.classId)
+      : null;
+    if (!schoolClass || schoolClass.schoolId !== user.schoolId) {
       const error = new Error('Class not found in your school.');
       error.statusCode = 404;
       error.code = 'CLASS_NOT_FOUND';

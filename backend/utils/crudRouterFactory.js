@@ -66,6 +66,23 @@ function createCrudRouter(collection, options = {}) {
       handler(req, res).catch((error) => sendError(res, error));
   }
 
+  function validateRequiredFields(record) {
+    for (const field of options.requiredFields || []) {
+      const value = record[field];
+      if (
+        value === undefined ||
+        value === null ||
+        typeof value !== "string" ||
+        !value.trim()
+      ) {
+        const error = new Error(`${field} is required.`);
+        error.statusCode = 400;
+        error.code = "REQUIRED_FIELD_MISSING";
+        throw error;
+      }
+    }
+  }
+
   function queryRecords(records, req) {
     let result = records;
     const search = String(req.query.search || "")
@@ -234,6 +251,7 @@ function createCrudRouter(collection, options = {}) {
         ...input
       } = req.body || {};
       const candidate = { ...input, schoolId: req.user.schoolId };
+      validateRequiredFields(candidate);
       if (options.validate)
         await options.validate(candidate, {
           operation: "create",
@@ -306,6 +324,7 @@ function createCrudRouter(collection, options = {}) {
         ...input
       } = req.body || {};
       const candidate = { ...existing, ...input };
+      validateRequiredFields(candidate);
       if (options.validate)
         await options.validate(candidate, {
           operation: "update",

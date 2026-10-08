@@ -3,6 +3,7 @@ const db = require('../utils/db');
 
 // Each loan: { id, itemId, itemTitle, studentId, studentName, borrowedDate, dueDate, returnedDate }
 module.exports = createCrudRouter('library-loans', {
+  requiredFields: ['studentId', 'itemId', 'borrowedDate', 'dueDate'],
   permissions: {
     create: ['admin', 'teacher'],
     read: ['admin', 'teacher', 'parent'],

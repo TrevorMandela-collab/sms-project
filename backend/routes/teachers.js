@@ -1,6 +1,7 @@
 const createCrudRouter = require("../utils/crudRouterFactory");
 
 module.exports = createCrudRouter("teachers", {
+  requiredFields: ["name"],
   permissions: {
     create: ["admin"],
     read: ["admin", "parent", "student"],

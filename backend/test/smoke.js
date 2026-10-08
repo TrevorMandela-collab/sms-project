@@ -327,6 +327,16 @@ async function run() {
       404,
       "attendance must not reference another school's student",
     );
+    const invalidAnnouncement = await request("/announcements", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ title: " ", body: "Missing title" }),
+    });
+    assert.equal(
+      invalidAnnouncement.status,
+      400,
+      "missing required announcement fields must be rejected at the API layer",
+    );
     const foreignFee = await request("/fees", {
       method: "POST",
       headers,
