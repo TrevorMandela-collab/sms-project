@@ -68,9 +68,10 @@ async function requireSchoolChat(req, res, next) {
  * Admins see every chat; everyone else sees only chats they're a member of.
  */
 router.get('/', requireAuth, safe(async (req, res) => {
-  const chats = await db.readAll(CHATS);
+  const chats = req.user.schoolId
+    ? await db.readBySchool(CHATS, req.user.schoolId)
+    : [];
   const visible = req.user.schoolId ? chats.filter(chat =>
-    chat.schoolId === req.user.schoolId &&
     (req.user.role === 'admin' || (chat.memberIds || []).includes(req.user.id))
   ) : [];
   res.json(visible);
@@ -88,11 +89,8 @@ router.post('/', requireAuth, requireRole('admin'), safe(async (req, res) => {
   const requestedMemberIds = Array.isArray(memberIds)
     ? [...new Set(memberIds)]
     : [];
-  const users = await db.readAll('users');
   const sameSchoolUsers = new Set(
-    users
-      .filter(user => user.schoolId === req.user.schoolId)
-      .map(user => user.id)
+    (await db.readBySchool('users', req.user.schoolId)).map(user => user.id)
   );
   if (!requestedMemberIds.every(id => sameSchoolUsers.has(id))) {
     return res.status(404).json({ error: 'One or more chat members were not found in your school.' });
@@ -123,11 +121,8 @@ router.patch('/:id', requireAuth, requireRole('admin'), safeMiddleware(requireSc
       return res.status(400).json({ error: 'memberIds must be an array.' });
     }
     const requestedMemberIds = [...new Set(memberIds)];
-    const users = await db.readAll('users');
     const sameSchoolUsers = new Set(
-      users
-        .filter(user => user.schoolId === req.user.schoolId)
-        .map(user => user.id)
+      (await db.readBySchool('users', req.user.schoolId)).map(user => user.id)
     );
     if (!requestedMemberIds.every(id => sameSchoolUsers.has(id))) {
       return res.status(404).json({ error: 'One or more chat members were not found in your school.' });
@@ -154,14 +149,7 @@ router.post('/:id/regenerate-code', requireAuth, requireRole('admin'), safeMiddl
  * Deletes the chat and all of its messages.
  */
 router.delete('/:id', requireAuth, requireRole('admin'), safeMiddleware(requireSchoolChat), safe(async (req, res) => {
-  const removed = await db.transaction(async () => {
-    const didRemove = await db.remove(CHATS, req.params.id);
-    if (!didRemove) return false;
-    const messages = await db.readAll(MESSAGES);
-    const toDelete = messages.filter(m => m.chatId === req.params.id);
-    for (const message of toDelete) await db.remove(MESSAGES, message.id);
-    return true;
-  });
+  const removed = await db.remove(CHATS, req.params.id);
   if (!removed) return res.status(404).json({ error: 'Chat not found.' });
   res.status(204).end();
 }));
@@ -173,11 +161,12 @@ router.delete('/:id', requireAuth, requireRole('admin'), safeMiddleware(requireS
 router.post('/join', requireAuth, safe(async (req, res) => {
   const { code } = req.body;
   if (!code) return res.status(400).json({ error: 'An invite code is required.' });
-  const chats = await db.readAll(CHATS);
-  const chat = chats.find(c =>
-    c.schoolId === req.user.schoolId &&
-    c.inviteCode.toUpperCase() === String(code).trim().toUpperCase()
-  );
+  const chat = req.user.schoolId
+    ? await db.findChatByInviteCode(
+        req.user.schoolId,
+        String(code).trim(),
+      )
+    : null;
   if (!chat) return res.status(404).json({ error: 'That invite code is not valid.' });
   if (chat.memberIds.includes(req.user.id)) {
     return res.json(chat); // already a member, no-op
@@ -190,11 +179,7 @@ router.post('/join', requireAuth, safe(async (req, res) => {
  * GET /api/chats/:chatId/messages  (members + admin only)
  */
 router.get('/:chatId/messages', requireAuth, safeMiddleware(requireMembership), safe(async (req, res) => {
-  const messages = await db.readAll(MESSAGES);
-  const thread = messages
-    .filter(m => m.chatId === req.params.chatId)
-    .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-  res.json(thread);
+  res.json(await db.readByChatId(req.params.chatId));
 }));
 
 /**

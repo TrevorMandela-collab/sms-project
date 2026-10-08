@@ -8,10 +8,10 @@ const db = require('./db');
  */
 async function getTeacherClassNames(user) {
   if (!user.teacherId || !user.schoolId) return new Set();
-  const classes = await db.readAll('classes');
+  const classes = await db.readBySchool('classes', user.schoolId);
   return new Set(
     classes
-      .filter(c => c.schoolId === user.schoolId && (c.teacherIds || []).includes(user.teacherId))
+      .filter(c => (c.teacherIds || []).includes(user.teacherId))
       .map(c => c.name)
   );
 }
@@ -19,10 +19,10 @@ async function getTeacherClassNames(user) {
 /** Same idea, but resolves to class *ids* instead of names. */
 async function getTeacherClassIds(user) {
   if (!user.teacherId || !user.schoolId) return new Set();
-  const classes = await db.readAll('classes');
+  const classes = await db.readBySchool('classes', user.schoolId);
   return new Set(
     classes
-      .filter(c => c.schoolId === user.schoolId && (c.teacherIds || []).includes(user.teacherId))
+      .filter(c => (c.teacherIds || []).includes(user.teacherId))
       .map(c => c.id)
   );
 }
@@ -31,19 +31,16 @@ async function getTeacherClassIds(user) {
 async function getTeacherStudentIds(user) {
   const classIds = await getTeacherClassIds(user);
   if (!classIds.size) return new Set();
-  const classes = await db.readAll('classes');
+  const classes = await db.readBySchool('classes', user.schoolId);
   const legacyClassNames = new Set(
     classes
-      .filter(classRecord =>
-        classIds.has(classRecord.id) && classRecord.schoolId === user.schoolId
-      )
+      .filter(classRecord => classIds.has(classRecord.id))
       .map(classRecord => classRecord.name)
   );
-  const students = await db.readAll('students');
+  const students = await db.readBySchool('students', user.schoolId);
   return new Set(
     students
       .filter(student =>
-        student.schoolId === user.schoolId &&
         (student.classId
           ? classIds.has(student.classId)
           : legacyClassNames.has(student.class))

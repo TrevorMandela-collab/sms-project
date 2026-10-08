@@ -290,15 +290,10 @@ async function run() {
     },
   ];
 
-  const existingByCollection = new Map();
-  for (const collection of new Set(entries.map(({ collection: name }) => name))) {
-    existingByCollection.set(collection, await db.readAll(collection));
+  const present = [];
+  for (const entry of entries) {
+    if (await db.findById(entry.collection, entry.record.id)) present.push(entry);
   }
-  const present = entries.filter(({ collection, record }) =>
-    existingByCollection
-      .get(collection)
-      .some((existing) => existing.id === record.id),
-  );
   if (present.length === entries.length) {
     console.log("Demo school seed is already present; no records changed.");
     return;
@@ -309,14 +304,13 @@ async function run() {
     );
   }
 
-  const existingUsers = existingByCollection.get("users");
-  const demoEmails = new Set(
-    entries
-      .filter(({ collection }) => collection === "users")
-      .map(({ record }) => record.email.toLowerCase()),
-  );
-  if (existingUsers.some((user) => demoEmails.has(user.email.toLowerCase()))) {
-    throw new Error("A demo account email is already in use; no records were changed.");
+  for (const { collection, record } of entries) {
+    if (
+      collection === "users" &&
+      await db.findUserByEmail(record.email, { includeDeleted: true })
+    ) {
+      throw new Error("A demo account email is already in use; no records were changed.");
+    }
   }
 
   const priority = ({ collection, record }) => {

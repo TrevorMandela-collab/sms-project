@@ -685,6 +685,38 @@ async function findInviteByCode(code) {
   return recordFromRow("invite-codes", rows[0]);
 }
 
+async function findChatByInviteCode(schoolId, code) {
+  await ensureSchema();
+  const rows = usePostgres
+    ? (await queryPostgres(
+        "SELECT * FROM chats WHERE school_id = $1 AND upper(invite_code) = upper($2) LIMIT 1",
+        [schoolId, code],
+      )).rows
+    : [
+        await querySqlite(
+          "get",
+          "SELECT * FROM chats WHERE school_id = ? AND upper(invite_code) = upper(?) LIMIT 1",
+          [schoolId, code],
+        ),
+      ].filter(Boolean);
+  return recordFromRow("chats", rows[0]);
+}
+
+async function readByChatId(chatId) {
+  await ensureSchema();
+  const rows = usePostgres
+    ? (await queryPostgres(
+        "SELECT * FROM chat_messages WHERE chat_id = $1 ORDER BY created_at ASC, id ASC",
+        [chatId],
+      )).rows
+    : await querySqlite(
+        "all",
+        "SELECT * FROM chat_messages WHERE chat_id = ? ORDER BY created_at ASC, id ASC",
+        [chatId],
+      );
+  return rows.map((row) => recordFromRow("chat-messages", row));
+}
+
 async function markPasswordResetsUsed(userId, usedAt) {
   await ensureSchema();
   if (usePostgres) {
@@ -1001,6 +1033,8 @@ module.exports = {
   findByIds,
   findUserByEmail,
   findInviteByCode,
+  findChatByInviteCode,
+  readByChatId,
   markPasswordResetsUsed,
   count,
   listPage,

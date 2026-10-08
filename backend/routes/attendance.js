@@ -35,6 +35,7 @@ module.exports = createCrudRouter("attendance", {
       error.code = "INVALID_ATTENDANCE_STATUS";
       throw error;
     }
+    attendance.status = String(attendance.status).toLowerCase();
     if (
       !attendance.studentId ||
       !attendance.date ||

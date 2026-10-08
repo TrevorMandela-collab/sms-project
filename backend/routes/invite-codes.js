@@ -76,12 +76,12 @@ router.post(
       return res.status(400).json({ error: "childIds must be an array." });
     }
     if (role === "parent" && Array.isArray(childIds) && childIds.length) {
-      const students = await db.readAll("students");
-      const validIds = new Set(
-        students
-          .filter((student) => student.schoolId === req.user.schoolId)
-          .map((student) => student.id),
+      const students = await db.findByIds(
+        "students",
+        childIds,
+        req.user.schoolId,
       );
+      const validIds = new Set(students.map((student) => student.id));
       if (!childIds.every((id) => validIds.has(id))) {
         return res
           .status(404)
@@ -124,9 +124,9 @@ router.get(
   requireAuth,
   requireRole("admin"),
   safe(async (req, res) => {
-    let codes = (await db.readAll(COLLECTION)).filter(
-      (invite) => invite.schoolId === req.user.schoolId,
-    );
+    let codes = req.user.schoolId
+      ? await db.readBySchool(COLLECTION, req.user.schoolId)
+      : [];
     if (req.query.studentId) {
       codes = codes.filter((c) => c.studentId === req.query.studentId);
     }

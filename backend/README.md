@@ -73,11 +73,17 @@ assignments, parent-child links, chat members, and library loans, and checks
 the imported row counts. Invalid or orphaned data stops that migration and
 leaves the source `store` intact. Do not remove `store`; it is retained as a
 read-only recovery source and is not used by mapped API collections.
+Migration `003` checks existing school-owned relationships and installs
+database triggers that reject cross-school links on later inserts and updates.
+If it finds an existing tenant mismatch, the migration fails without removing
+records; correct or reconcile the reported relationship and rerun migrations.
 
 SQLite and PostgreSQL use the same table definitions and data mapping.
 `backend/migrations/001_relational_schema.js` contains the relational schema;
-`002_import_legacy_store.js` is the versioned legacy import. Use the same
-migration command against development, test, and production databases.
+`002_import_legacy_store.js` is the versioned legacy import, and
+`003_enforce_school_relationships.js` adds tenant-consistency enforcement.
+Use the same migration command against development, test, and production
+databases.
 
 ### Backup, migration, and recovery
 

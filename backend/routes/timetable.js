@@ -7,18 +7,17 @@ const { getTeacherClassNames } = require('../utils/teacherScope');
 // student.class), so scoping is a simpler one-hop lookup than assignments.
 
 async function classRecordsForStudentIds(studentIds, schoolId) {
-  const students = await db.readAll('students');
+  const students = await db.readBySchool('students', schoolId);
   const linkedStudents = students.filter(
-    student => studentIds.includes(student.id) && student.schoolId === schoolId
+    student => studentIds.includes(student.id)
   );
-  const classes = await db.readAll('classes');
+  const classes = await db.readBySchool('classes', schoolId);
   const classIds = new Set(linkedStudents.map(student => student.classId).filter(Boolean));
   const legacyClassNames = new Set(
     linkedStudents.filter(student => !student.classId).map(student => student.class).filter(Boolean)
   );
   return classes.filter(classRecord =>
-    classRecord.schoolId === schoolId &&
-    (classIds.has(classRecord.id) || legacyClassNames.has(classRecord.name))
+    classIds.has(classRecord.id) || legacyClassNames.has(classRecord.name)
   );
 }
 

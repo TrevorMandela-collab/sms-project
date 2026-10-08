@@ -186,8 +186,11 @@ function createCrudRouter(collection, options = {}) {
         });
         return res.json(result);
       }
+      const scopedRecords = req.user.schoolId
+        ? await db.readBySchool(collection, req.user.schoolId)
+        : [];
       const records = queryRecords(
-        await applyScope(await db.readAll(collection), req.user),
+        await applyScope(scopedRecords, req.user),
         req,
       );
       res.json(paginate(records, req));

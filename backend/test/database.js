@@ -58,7 +58,7 @@ async function run() {
     );
   }
   const versions = await db.migrate();
-  assert.deepEqual(versions, ["001", "002"]);
+  assert.deepEqual(versions, ["001", "002", "003"]);
   const importedCounts = await db.all(
     "SELECT 'students' AS entity, COUNT(*) AS count FROM students UNION ALL SELECT 'attendance', COUNT(*) FROM attendance UNION ALL SELECT 'invoices', COUNT(*) FROM invoices UNION ALL SELECT 'assessment_results', COUNT(*) FROM assessment_results",
   );
@@ -107,7 +107,9 @@ async function run() {
   assert.equal((await db.all("SELECT COUNT(*) AS count FROM teacher_assignments"))[0].count, 1);
   assert.equal((await db.all("SELECT COUNT(*) AS count FROM class_subjects"))[0].count, 1);
   assert.equal((await db.all("SELECT COUNT(*) AS count FROM chat_members"))[0].count, 1);
-  assert.equal((await db.all("SELECT COUNT(*) AS count FROM schema_migrations"))[0].count, 2);
+  assert.equal((await db.all("SELECT COUNT(*) AS count FROM schema_migrations"))[0].count, 3);
+  assert.equal((await db.findChatByInviteCode("school-1", "chat-code")).id, "chat-1");
+  assert.equal((await db.readByChatId("chat-1")).length, 1);
   await db.migrate();
   assert.equal((await db.readAll("students")).length, 1);
   const failedMigration = spawnSync(
@@ -166,6 +168,28 @@ async function run() {
       ["student-no-name", "school-1", null, "active", stamp, stamp],
     ),
     /NOT NULL|not null/i,
+  );
+  await db.execute(
+    "INSERT INTO schools (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+    ["school-2", "Other School", stamp, stamp],
+  );
+  await db.execute(
+    "INSERT INTO classes (id, school_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+    ["class-foreign", "school-2", "Foreign Class", stamp, stamp],
+  );
+  await assert.rejects(
+    db.execute(
+      "INSERT INTO students (id, school_id, class_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ["student-cross-school-class", "school-1", "class-foreign", "Invalid Tenant Link", "active", stamp, stamp],
+    ),
+    /cross-school relationship/i,
+  );
+  await assert.rejects(
+    db.execute(
+      "UPDATE students SET class_id = ? WHERE id = ?",
+      ["class-foreign", "student-1"],
+    ),
+    /cross-school relationship/i,
   );
   await assert.rejects(
     db.execute(
