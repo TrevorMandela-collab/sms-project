@@ -17,7 +17,7 @@ async function run() {
     );
   }
 
-  await db.ensureSchema();
+  await db.migrate();
   const createdAt = new Date().toISOString();
   const today = createdAt.slice(0, 10);
   const schoolId = "demo-school";
@@ -319,9 +319,28 @@ async function run() {
     throw new Error("A demo account email is already in use; no records were changed.");
   }
 
+  const priority = ({ collection, record }) => {
+    if (collection === "schools") return 0;
+    if (collection === "users") return record.role === "parent" ? 6 : 1;
+    if (collection === "teachers") return 2;
+    if (collection === "subjects") return 3;
+    if (collection === "classes") return 4;
+    if (collection === "students") return 5;
+    return 10;
+  };
+  const orderedEntries = entries
+    .map((entry, index) => ({ ...entry, index }))
+    .sort((left, right) => priority(left) - priority(right) || left.index - right.index);
+
   await db.transaction(async () => {
-    for (const { collection, record } of entries) {
-      await db.insert(collection, record);
+    for (const { collection, record } of orderedEntries) {
+      try {
+        await db.insert(collection, record);
+      } catch (error) {
+        throw new Error(
+          `Failed to seed ${collection}/${record.id}: ${error.message}`,
+        );
+      }
     }
   });
 

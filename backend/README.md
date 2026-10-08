@@ -65,20 +65,38 @@ do not trust client-supplied forwarding headers.
 
 ## Data storage
 
-**Migration status: not yet normalized.** The current API still uses the
-legacy JSON `store` table described below. This is a prototype persistence
-layer, not the requested relational production schema. Do not treat setting
-`DATABASE_URL` as having migrated existing data; relational migrations and a
-repeatable legacy-data conversion are still required. The migration runner,
-relational schema, and import process have not yet been added. The transaction
-and connection controls described above are foundations only; they do not
-replace the legacy storage architecture.
+**Migration status:** the API reads and writes the normalized relational
+tables. Versioned migrations run transactionally at server startup or with
+`npm run db:migrate`. Migration `002` imports the legacy `store` records,
+preserves IDs and unmodeled fields, creates relational links for legacy class
+assignments, parent-child links, chat members, and library loans, and checks
+the imported row counts. Invalid or orphaned data stops that migration and
+leaves the source `store` intact. Do not remove `store`; it is retained as a
+read-only recovery source and is not used by mapped API collections.
 
-Records live in a single `store` table, one row per record, keyed by
-`(collection, id)` with the record itself stored as JSON. Postgres is used
-when `DATABASE_URL` is set; SQLite is used otherwise. Every route file calls
-the same five async functions (`readAll`, `findById`, `insert`, `update`,
-`remove`), so the storage engine can change without route changes.
+SQLite and PostgreSQL use the same table definitions and data mapping.
+`backend/migrations/001_relational_schema.js` contains the relational schema;
+`002_import_legacy_store.js` is the versioned legacy import. Use the same
+migration command against development, test, and production databases.
+
+### Backup, migration, and recovery
+
+Back up the database before deploying a migration. Stop the API while taking a
+SQLite file copy, or use SQLite's online backup API; for PostgreSQL use
+`pg_dump --format=custom --file=<backup-file> <connection-target>` with
+credentials supplied through the approved environment/configuration mechanism.
+Never put a live connection string in shell history or documentation.
+
+After verifying the backup, apply migrations with `npm run db:migrate`, then
+start the API and verify `/api/health` and the migrated record counts. The
+legacy-import migration is atomic; if it fails, it reports the migration
+version and invalid collection/record IDs, rolls back normalized inserts, and
+retains the legacy rows. There are currently no automatic down migrations.
+Recovery from a failed deployment is to stop writes and restore the
+pre-migration backup using the database provider's restore procedure (or
+`pg_restore --clean --if-exists --dbname=<target> <backup-file>` for a
+PostgreSQL custom-format backup). Do not manually delete schema or legacy
+records as a rollback strategy.
 
 ## Roles
 

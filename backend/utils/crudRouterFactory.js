@@ -17,12 +17,6 @@ function createCrudRouter(collection, options = {}) {
     delete: options.permissions?.delete || ["admin"],
   };
 
-  if (options.seed) {
-    db.ensureFile(collection, options.seed).catch((error) => {
-      console.error(`[${collection}] failed to seed:`, error.message);
-    });
-  }
-
   async function applyScope(records, user) {
     if (!user.schoolId) return [];
     const schoolRecords = records.filter(
@@ -130,6 +124,43 @@ function createCrudRouter(collection, options = {}) {
     requireAuth,
     requireRole(...permissions.read),
     safe(async (req, res) => {
+      if (
+        req.user.role === "admin" &&
+        (req.query.page !== undefined || req.query.limit !== undefined)
+      ) {
+        const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+        const limit = Math.min(
+          100,
+          Math.max(1, Number.parseInt(req.query.limit, 10) || 25),
+        );
+        if (!req.user.schoolId) {
+          return res.json({
+            data: [],
+            meta: { page, limit, total: 0, pages: 0 },
+          });
+        }
+        const filters = {};
+        for (const field of options.filterFields || []) {
+          const value = req.query[`filter[${field}]`];
+          if (value !== undefined) filters[field] = value;
+        }
+        const sort = String(req.query.sort || "").trim();
+        const descending = sort.startsWith("-");
+        const requestedSort = descending ? sort.slice(1) : sort;
+        const result = await db.listPage(collection, {
+          schoolId: req.user.schoolId,
+          page,
+          limit,
+          filters,
+          search: req.query.search,
+          searchFields: options.searchFields || [],
+          sortField: options.sortFields?.includes(requestedSort)
+            ? requestedSort
+            : "",
+          descending,
+        });
+        return res.json(result);
+      }
       const records = queryRecords(
         await applyScope(await db.readAll(collection), req.user),
         req,

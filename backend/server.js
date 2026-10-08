@@ -108,7 +108,7 @@ function shutdown(signal) {
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
-db.ensureSchema()
+db.migrate()
   .then(() => {
     console.log('[db] Connected and schema ready.');
     server.listen(PORT, () => {

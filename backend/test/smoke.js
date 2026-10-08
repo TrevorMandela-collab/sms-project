@@ -234,39 +234,35 @@ async function run() {
       metadata: {},
     };
     const tenantDatabase = new Database(databasePath);
-    const insertTenantRecord = tenantDatabase.prepare(
-      "INSERT INTO store (collection, id, data) VALUES (?, ?, ?)",
-    );
-    insertTenantRecord.run(
-      "students",
-      foreignStudent.id,
-      JSON.stringify(foreignStudent),
-    );
-    insertTenantRecord.run("classes", foreignClass.id, JSON.stringify(foreignClass));
-    insertTenantRecord.run("users", foreignUser.id, JSON.stringify(foreignUser));
-    insertTenantRecord.run("chats", foreignChat.id, JSON.stringify(foreignChat));
-    insertTenantRecord.run(
-      "invite-codes",
-      foreignInvite.id,
-      JSON.stringify(foreignInvite),
-    );
-    insertTenantRecord.run(
-      "audit-logs",
-      foreignAuditEvent.id,
-      JSON.stringify(foreignAuditEvent),
-    );
+    tenantDatabase.pragma("foreign_keys = ON");
+    const foreignCreatedAt = new Date().toISOString();
+    tenantDatabase.prepare(
+      "INSERT INTO schools (id, name, settings_json, onboarding_completed, created_at, updated_at, extra_data) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run("another-school-id", "Foreign School", "{}", 0, foreignCreatedAt, foreignCreatedAt, "{}");
+    tenantDatabase.prepare(
+      "INSERT INTO students (id, school_id, name, class_name, status, created_at, updated_at, extra_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(foreignStudent.id, foreignStudent.schoolId, foreignStudent.name, foreignStudent.class, "active", foreignCreatedAt, foreignCreatedAt, JSON.stringify({ class: foreignStudent.class }));
+    tenantDatabase.prepare(
+      "INSERT INTO classes (id, school_id, name, status, created_at, updated_at, extra_data) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(foreignClass.id, foreignClass.schoolId, foreignClass.name, "active", foreignCreatedAt, foreignCreatedAt, JSON.stringify({ teacherIds: [] }));
+    tenantDatabase.prepare(
+      "INSERT INTO users (id, school_id, name, email, password_hash, role_code, status, token_version, created_at, updated_at, extra_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(foreignUser.id, foreignUser.schoolId, foreignUser.name, foreignUser.email, "unused-test-hash", "admin", "active", 0, foreignCreatedAt, foreignCreatedAt, "{}");
+    tenantDatabase.prepare(
+      "INSERT INTO chats (id, school_id, name, invite_code, created_at, updated_at, extra_data) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(foreignChat.id, foreignChat.schoolId, foreignChat.name, foreignChat.inviteCode, foreignCreatedAt, foreignCreatedAt, JSON.stringify({ memberIds: foreignChat.memberIds }));
+    tenantDatabase.prepare(
+      "INSERT INTO invite_codes (id, school_id, code, role_code, student_id, created_by, expires_at, created_at, updated_at, extra_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(foreignInvite.id, foreignInvite.schoolId, foreignInvite.code, foreignInvite.role, foreignInvite.studentId, foreignUser.id, new Date(Date.now() + 86400000).toISOString(), foreignCreatedAt, foreignCreatedAt, "{}");
+    tenantDatabase.prepare(
+      "INSERT INTO audit_logs (id, school_id, actor_user_id, action, entity_type, entity_id, timestamp, metadata, created_at, updated_at, extra_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(foreignAuditEvent.id, foreignAuditEvent.schoolId, foreignAuditEvent.actorUserId, foreignAuditEvent.action, foreignAuditEvent.entityType, foreignAuditEvent.entityId, foreignAuditEvent.timestamp, "{}", foreignCreatedAt, foreignCreatedAt, "{}");
     tenantDatabase.close();
 
     const roleRefreshDatabase = new Database(databasePath);
-    const adminRecord = JSON.parse(
-      roleRefreshDatabase
-        .prepare("SELECT data FROM store WHERE collection = ? AND id = ?")
-        .get("users", auth.user.id).data,
-    );
-    adminRecord.role = "teacher";
     roleRefreshDatabase
-      .prepare("UPDATE store SET data = ? WHERE collection = ? AND id = ?")
-      .run(JSON.stringify(adminRecord), "users", auth.user.id);
+      .prepare("UPDATE users SET role_code = ? WHERE id = ?")
+      .run("teacher", auth.user.id);
     roleRefreshDatabase.close();
     const staleAdminToken = await request("/schools/me", { headers });
     assert.equal(
@@ -275,10 +271,9 @@ async function run() {
       "authorization must use the current database role rather than JWT claims",
     );
     const restoreRoleDatabase = new Database(databasePath);
-    adminRecord.role = "admin";
     restoreRoleDatabase
-      .prepare("UPDATE store SET data = ? WHERE collection = ? AND id = ?")
-      .run(JSON.stringify(adminRecord), "users", auth.user.id);
+      .prepare("UPDATE users SET role_code = ? WHERE id = ?")
+      .run("admin", auth.user.id);
     restoreRoleDatabase.close();
 
     const studentList = await request("/students", { headers });
@@ -518,14 +513,9 @@ async function run() {
     assert.equal(assignedClassResponse.status, 201);
     const assignedClass = await assignedClassResponse.json();
     const classLinkDatabase = new Database(databasePath);
-    const linkedStudentRecord = classLinkDatabase
-      .prepare("SELECT data FROM store WHERE collection = ? AND id = ?")
-      .get("students", student.id);
-    const linkedStudent = JSON.parse(linkedStudentRecord.data);
-    linkedStudent.classId = assignedClass.id;
     classLinkDatabase
-      .prepare("UPDATE store SET data = ? WHERE collection = ? AND id = ?")
-      .run(JSON.stringify(linkedStudent), "students", student.id);
+      .prepare("UPDATE students SET class_id = ?, class_name = ? WHERE id = ?")
+      .run(assignedClass.id, assignedClass.name, student.id);
     classLinkDatabase.close();
     const renamedClass = await request(`/classes/${assignedClass.id}`, {
       method: "PATCH",
@@ -699,11 +689,11 @@ async function run() {
     assert.ok(forgotBody.token, "test mode should expose the reset token");
     const resetDatabase = new Database(databasePath);
     const resetRecords = resetDatabase
-      .prepare("SELECT * FROM store WHERE collection = ?")
-      .all("password-resets");
+      .prepare("SELECT * FROM password_resets WHERE user_id = ?")
+      .all(auth.user.id);
     assert.equal(resetRecords.length, 1, "a reset token should be created");
-    const savedReset = JSON.parse(resetRecords[0].data);
-    assert.ok(savedReset.tokenHash, "only a reset-token hash should be persisted");
+    const savedReset = resetRecords[0];
+    assert.ok(savedReset.token_hash, "only a reset-token hash should be persisted");
     assert.equal(savedReset.token, undefined, "plaintext reset tokens must not be persisted");
     const resetToken = forgotBody.token;
     resetDatabase.close();
@@ -732,13 +722,11 @@ async function run() {
       "a reset token must only succeed once when requests race",
     );
     const consumedResetDatabase = new Database(databasePath);
-    const consumedReset = JSON.parse(
-      consumedResetDatabase
-        .prepare("SELECT data FROM store WHERE collection = ?")
-        .get("password-resets").data,
-    );
+    const consumedReset = consumedResetDatabase
+      .prepare("SELECT used_at FROM password_resets WHERE user_id = ?")
+      .get(auth.user.id);
     consumedResetDatabase.close();
-    assert.equal(consumedReset.used, true, "successful reset must consume its token");
+    assert.ok(consumedReset.used_at, "successful reset must consume its token");
 
     const oldLogin = await request("/auth/login", {
       method: "POST",
@@ -817,16 +805,7 @@ async function run() {
     );
 
     const db = new Database(databasePath);
-    const userRecord = db
-      .prepare("SELECT data FROM store WHERE collection = ? AND id = ?")
-      .get("users", auth.user.id);
-    const user = JSON.parse(userRecord.data);
-    user.schoolId = null;
-    db.prepare("UPDATE store SET data = ? WHERE collection = ? AND id = ?").run(
-      JSON.stringify(user),
-      "users",
-      auth.user.id,
-    );
+    db.prepare("UPDATE users SET school_id = NULL WHERE id = ?").run(auth.user.id);
     db.close();
 
     const repairedProfile = await request("/schools/me", { headers });
