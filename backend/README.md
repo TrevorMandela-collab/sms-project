@@ -34,6 +34,13 @@ Both adapters expose `db.transaction(async () => { ... })`; nested calls use
 savepoints, and related writes in the callback commit or roll back together.
 The server closes its database pool/connection on `SIGINT` and `SIGTERM`.
 
+Run the SQLite migration and API suite with `npm test`. PostgreSQL integration
+tests can be run with `TEST_DATABASE_URL` set to a newly provisioned, dedicated
+database whose name includes `test`, then `npm run test:postgres`. The test
+runner refuses a database with existing migration or legacy data, and it
+leaves the test schema in place; provision a fresh disposable database for
+each run. Do not point test commands at development or production databases.
+
 To seed an empty development database, set `DEMO_SEED_PASSWORD` to a unique
 password of at least 12 characters, then run `npm run seed`. The command only
 runs when `NODE_ENV=development`, refuses partial/conflicting seed data, and

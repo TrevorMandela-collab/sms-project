@@ -96,6 +96,12 @@ function queryPostgres(sql, values = []) {
   return (current?.client || pool).query(sql, values);
 }
 
+function normalizePostgresPlaceholders(sql) {
+  if (!usePostgres || !sql.includes("?")) return sql;
+  let index = 0;
+  return sql.replace(/\?/g, () => `$${++index}`);
+}
+
 function querySqlite(method, sql, values = []) {
   const execute = () => sqlite.prepare(sql)[method](...values);
   return withSqliteAccess(execute);
@@ -496,14 +502,14 @@ async function transaction(work) {
 
 async function execute(sql, values = []) {
   await ensureSchema();
-  if (usePostgres) return queryPostgres(sql, values);
+  if (usePostgres) return queryPostgres(normalizePostgresPlaceholders(sql), values);
   return querySqlite("run", sql, values);
 }
 
 async function all(sql, values = []) {
   await ensureSchema();
   if (usePostgres) {
-    const result = await queryPostgres(sql, values);
+    const result = await queryPostgres(normalizePostgresPlaceholders(sql), values);
     return result.rows;
   }
   return querySqlite("all", sql, values);

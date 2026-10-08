@@ -4,9 +4,20 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+if (process.env.TEST_DATABASE_URL) {
+  const databaseName = new URL(process.env.TEST_DATABASE_URL).pathname
+    .split("/")
+    .filter(Boolean)
+    .pop();
+  if (!/(^|[_-])test([_-]|$)/i.test(databaseName || "")) {
+    throw new Error("TEST_DATABASE_URL must point to a dedicated database with 'test' in its name.");
+  }
+  process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
+} else {
+  process.env.DATABASE_URL = "";
+}
 const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "sms-database-test-"));
 process.env.SQLITE_PATH = path.join(tempDirectory, "test.sqlite");
-process.env.DATABASE_URL = "";
 
 const db = require("../utils/db");
 const eventRecord = (id) => ({
@@ -27,6 +38,20 @@ function deferred() {
 
 async function run() {
   await db.ensureSchema();
+  const existingMigrations = await db.all(
+    "SELECT COUNT(*) AS count FROM schema_migrations",
+  );
+  const existingLegacyRows = await db.all(
+    "SELECT COUNT(*) AS count FROM store",
+  );
+  if (
+    Number(existingMigrations[0].count) !== 0 ||
+    Number(existingLegacyRows[0].count) !== 0
+  ) {
+    throw new Error(
+      "Database integration tests require a fresh, dedicated test database.",
+    );
+  }
   const now = new Date().toISOString();
   const legacy = [
     ["schools", { id: "school-1", name: "Migration School", createdBy: null, createdAt: now }],
@@ -103,11 +128,11 @@ async function run() {
     searchFields: ["name"],
   });
   assert.equal(injectionSearch.meta.total, 0);
-  assert.equal((await db.all("SELECT COUNT(*) AS count FROM library_copies"))[0].count, 1);
-  assert.equal((await db.all("SELECT COUNT(*) AS count FROM teacher_assignments"))[0].count, 1);
-  assert.equal((await db.all("SELECT COUNT(*) AS count FROM class_subjects"))[0].count, 1);
-  assert.equal((await db.all("SELECT COUNT(*) AS count FROM chat_members"))[0].count, 1);
-  assert.equal((await db.all("SELECT COUNT(*) AS count FROM schema_migrations"))[0].count, 3);
+  assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM library_copies"))[0].count), 1);
+  assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM teacher_assignments"))[0].count), 1);
+  assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM class_subjects"))[0].count), 1);
+  assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM chat_members"))[0].count), 1);
+  assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM schema_migrations"))[0].count), 3);
   assert.equal((await db.findChatByInviteCode("school-1", "chat-code")).id, "chat-1");
   assert.equal((await db.readByChatId("chat-1")).length, 1);
   await db.migrate();
