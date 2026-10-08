@@ -270,10 +270,6 @@ loanForm.addEventListener('submit', async (e) => {
 
   try {
     await SmsAuth.apiFetch('/library-loans', { method: 'POST', body: payload });
-    await SmsAuth.apiFetch(`/library/${bookId}`, {
-      method: 'PATCH',
-      body: { copiesAvailable: (book.copiesAvailable ?? book.copiesTotal) - 1 },
-    });
     closeLoanModal();
     await loadLibrary();
   } catch (err) {
@@ -292,13 +288,6 @@ async function markReturned(loanId) {
       method: 'PATCH',
       body: { returnedDate: new Date().toISOString().slice(0, 10) },
     });
-    const book = catalogState.find(b => b.id === loan.itemId);
-    if (book) {
-      await SmsAuth.apiFetch(`/library/${book.id}`, {
-        method: 'PATCH',
-        body: { copiesAvailable: (book.copiesAvailable ?? book.copiesTotal) + 1 },
-      });
-    }
     await loadLibrary();
   } catch (err) {
     alert(`Couldn't update loan: ${err.message}`);

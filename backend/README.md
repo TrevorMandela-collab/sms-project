@@ -94,6 +94,9 @@ databases.
 The data layer also exposes atomic `createInvoiceWithItems` and
 `recordPaymentWithAllocations` operations. These are persistence primitives;
 they do not add a payment API route or change the existing fees API.
+Library loan creation, return, and archival adjust available-copy counts
+inside the same transaction as the loan record, so API clients must not update
+`copiesAvailable` separately when creating or returning loans.
 
 ### Backup, migration, and recovery
 

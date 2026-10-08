@@ -206,6 +206,97 @@ async function run() {
     Number((await db.all("SELECT COUNT(*) AS count FROM payments WHERE id = ?", ["payment-rollback"]))[0].count),
     0,
   );
+  await db.insert("library", {
+    id: "book-loan-test",
+    schoolId: "school-1",
+    title: "Loan workflow book",
+    copiesTotal: 1,
+    copiesAvailable: 1,
+    createdAt: financeStamp,
+  });
+  await db.insert("library-loans", {
+    id: "loan-workflow",
+    schoolId: "school-1",
+    itemId: "book-loan-test",
+    studentId: "student-1",
+    borrowedDate: financeStamp,
+    dueDate: financeStamp,
+    createdAt: financeStamp,
+  });
+  assert.equal((await db.findById("library", "book-loan-test")).copiesAvailable, 0);
+  await assert.rejects(
+    db.insert("library-loans", {
+      id: "loan-over-capacity",
+      schoolId: "school-1",
+      itemId: "book-loan-test",
+      studentId: "student-1",
+      borrowedDate: financeStamp,
+      dueDate: financeStamp,
+      createdAt: financeStamp,
+    }),
+    (error) => error.code === "NO_AVAILABLE_BOOK_COPY",
+  );
+  assert.equal(await db.findById("library-loans", "loan-over-capacity"), null);
+  await db.update("library-loans", "loan-workflow", {
+    returnedDate: financeStamp,
+  });
+  assert.equal((await db.findById("library", "book-loan-test")).copiesAvailable, 1);
+  await db.update("library-loans", "loan-workflow", { returnedDate: null });
+  assert.equal((await db.findById("library", "book-loan-test")).copiesAvailable, 0);
+  assert.equal(await db.remove("library-loans", "loan-workflow"), true);
+  assert.equal((await db.findById("library", "book-loan-test")).copiesAvailable, 1);
+  assert.equal(await db.findById("library-loans", "loan-workflow"), null);
+  assert.equal(await db.remove("library-loans", "loan-workflow"), false);
+  assert.equal((await db.findById("library", "book-loan-test")).copiesAvailable, 1);
+  await db.insert("library", {
+    id: "book-loan-concurrent",
+    schoolId: "school-1",
+    title: "Concurrent loan book",
+    copiesTotal: 1,
+    copiesAvailable: 1,
+    createdAt: financeStamp,
+  });
+  const concurrentLoans = await Promise.allSettled(
+    ["loan-concurrent-1", "loan-concurrent-2"].map((id) =>
+      db.insert("library-loans", {
+        id,
+        schoolId: "school-1",
+        itemId: "book-loan-concurrent",
+        studentId: "student-1",
+        borrowedDate: financeStamp,
+        dueDate: financeStamp,
+        createdAt: financeStamp,
+      }),
+    ),
+  );
+  const activeLoanId = ["loan-concurrent-1", "loan-concurrent-2"][
+    concurrentLoans.findIndex((result) => result.status === "fulfilled")
+  ];
+  assert.equal(
+    concurrentLoans.filter((result) => result.status === "fulfilled").length,
+    1,
+  );
+  assert.equal(
+    concurrentLoans.filter((result) => result.status === "rejected").length,
+    1,
+  );
+  assert.equal((await db.findById("library", "book-loan-concurrent")).copiesAvailable, 0);
+  await assert.rejects(
+    db.update("library", "book-loan-concurrent", {
+      copiesTotal: 0,
+      copiesAvailable: 0,
+    }),
+    (error) => error.code === "BOOK_COPIES_BELOW_ACTIVE_LOANS",
+  );
+  const expandedBook = await db.update("library", "book-loan-concurrent", {
+    copiesTotal: 2,
+    copiesAvailable: 1,
+  });
+  assert.equal(expandedBook.copiesAvailable, 1);
+  await db.update("library-loans", activeLoanId, {
+    returnedDate: financeStamp,
+  });
+  assert.equal((await db.findById("library", "book-loan-concurrent")).copiesAvailable, 2);
   await db.migrate();
   assert.equal((await db.readAll("students")).length, 1);
   const failedMigration = spawnSync(

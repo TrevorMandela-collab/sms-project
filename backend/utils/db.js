@@ -1008,6 +1008,9 @@ async function insert(collection, record) {
     const bookId = values.book_id;
     delete values.book_id;
     if (collection === "library-loans" && bookId) {
+      if (!record.returnedDate) {
+        await changeAvailableCopies(bookId, record.schoolId, -1);
+      }
       const copy = {
         id: values.copy_id,
         school_id: values.school_id,
@@ -1028,6 +1031,30 @@ async function insert(collection, record) {
   });
 }
 
+async function changeAvailableCopies(bookId, schoolId, change) {
+  const placeholder = (index) => usePostgres ? `$${index}` : "?";
+  const condition =
+    change < 0 ? "copies_available > 0" : "copies_available < copies_total";
+  const sql = `UPDATE library_books
+    SET copies_available = copies_available + ${change}, updated_at = ${placeholder(1)}
+    WHERE id = ${placeholder(2)} AND school_id = ${placeholder(3)} AND ${condition}`;
+  const values = [new Date().toISOString(), bookId, schoolId];
+  const result = usePostgres
+    ? await queryPostgres(`${sql} RETURNING id`, values)
+    : await querySqlite("run", sql, values);
+  const changed = usePostgres ? result.rowCount : result.changes;
+  if (!changed) {
+    const error = new Error(
+      change < 0
+        ? "No available copy remains for this book."
+        : "Available-copy count cannot exceed the book's total copies.",
+    );
+    error.statusCode = 409;
+    error.code = change < 0 ? "NO_AVAILABLE_BOOK_COPY" : "INVALID_BOOK_COPY_COUNT";
+    throw error;
+  }
+}
+
 async function update(collection, id, updates) {
   const mapping = mappingFor(collection);
   if (!mapping) {
@@ -1040,6 +1067,42 @@ async function update(collection, id, updates) {
     const values = encodeRelationalRecord(collection, updated);
     const bookId = values.book_id;
     delete values.book_id;
+    if (collection === "library") {
+      const activeLoans = usePostgres
+        ? (await queryPostgres(
+            "SELECT COUNT(*) AS total FROM library_loans l JOIN library_copies c ON c.id = l.copy_id WHERE c.book_id = $1 AND l.returned_at IS NULL AND l.archived_at IS NULL",
+            [id],
+          )).rows[0].total
+        : (
+            await querySqlite(
+              "get",
+              "SELECT COUNT(*) AS total FROM library_loans l JOIN library_copies c ON c.id = l.copy_id WHERE c.book_id = ? AND l.returned_at IS NULL AND l.archived_at IS NULL",
+              [id],
+            )
+          ).total;
+      if (Number(updated.copiesTotal) < Number(activeLoans)) {
+        const error = new Error("Total copies cannot be less than the number currently on loan.");
+        error.statusCode = 409;
+        error.code = "BOOK_COPIES_BELOW_ACTIVE_LOANS";
+        throw error;
+      }
+      if (updates.copiesTotal !== undefined) {
+        updated.copiesAvailable =
+          Number(updated.copiesTotal) - Number(activeLoans);
+      }
+    }
+    if (collection === "library-loans" && bookId && existing.itemId !== updated.itemId) {
+      if (!existing.returnedDate) {
+        await changeAvailableCopies(existing.itemId, existing.schoolId, 1);
+        await changeAvailableCopies(updated.itemId, updated.schoolId, -1);
+      }
+    } else if (collection === "library-loans" && bookId) {
+      if (!existing.returnedDate && updated.returnedDate) {
+        await changeAvailableCopies(existing.itemId, existing.schoolId, 1);
+      } else if (existing.returnedDate && !updated.returnedDate) {
+        await changeAvailableCopies(updated.itemId, updated.schoolId, -1);
+      }
+    }
     const assignments = Object.keys(values)
       .filter((column) => column !== "id")
       .map((column, index) => `${column} = ${usePostgres ? `$${index + 1}` : "?"}`);
@@ -1060,16 +1123,19 @@ async function update(collection, id, updates) {
     await synchronizeRelations(collection, updated, existing);
     if (collection === "library-loans" && bookId) {
       const copyId = values.copy_id;
-      await (usePostgres
+      const copyUpdate = await (usePostgres
         ? queryPostgres(
-            "UPDATE library_copies SET book_id = $1 WHERE id = $2",
-            [bookId, copyId],
+            "UPDATE library_copies SET book_id = $1, status = $2, updated_at = $3 WHERE id = $4",
+            [bookId, updated.returnedDate ? "available" : "loaned", new Date().toISOString(), copyId],
           )
         : querySqlite(
             "run",
-            "UPDATE library_copies SET book_id = ? WHERE id = ?",
-            [bookId, copyId],
+            "UPDATE library_copies SET book_id = ?, status = ?, updated_at = ? WHERE id = ?",
+            [bookId, updated.returnedDate ? "available" : "loaned", new Date().toISOString(), copyId],
           ));
+      if ((usePostgres ? copyUpdate.rowCount : copyUpdate.changes) !== 1) {
+        throw new Error("Library loan copy record is missing.");
+      }
     }
     return updated;
   });
@@ -1080,6 +1146,29 @@ async function remove(collection, id) {
   const mapping = mappingFor(collection);
   if (!mapping) {
     throw new TypeError(`No relational mapping exists for ${collection}.`);
+  }
+  if (collection === "library-loans") {
+    return transaction(async () => {
+      const existing = await findById(collection, id, { forUpdate: true });
+      if (!existing) return false;
+      if (!existing.returnedDate) {
+        await changeAvailableCopies(existing.itemId, existing.schoolId, 1);
+        const copyStatus = usePostgres
+          ? await queryPostgres(
+              "UPDATE library_copies SET status = 'available', updated_at = $1 WHERE id = $2",
+              [new Date().toISOString(), `legacy-copy:${id}`],
+            )
+          : await querySqlite(
+              "run",
+              "UPDATE library_copies SET status = 'available', updated_at = ? WHERE id = ?",
+              [new Date().toISOString(), `legacy-copy:${id}`],
+            );
+        if ((usePostgres ? copyStatus.rowCount : copyStatus.changes) !== 1) {
+          throw new Error("Library loan copy record is missing.");
+        }
+      }
+      return softRemove(mapping, id, "archived_at", collection);
+    });
   }
   if (collection === "audit-logs" || collection === "exams") {
     if (collection === "exams") {
