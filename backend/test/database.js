@@ -4,6 +4,7 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const { mapRecord } = require("../migrations/002_import_legacy_store");
+const { toCents } = require("../utils/money");
 
 if (process.env.TEST_DATABASE_URL) {
   const databaseName = new URL(process.env.TEST_DATABASE_URL).pathname
@@ -38,6 +39,10 @@ function deferred() {
 }
 
 async function run() {
+  assert.equal(toCents(0.1), 10);
+  assert.equal(toCents(0.3), 30);
+  assert.equal(toCents(1.005), null);
+  assert.equal(toCents(10000000000), null);
   const hashAlias = mapRecord(
     "users",
     {
@@ -195,6 +200,57 @@ async function run() {
       ],
     ),
     /FOREIGN KEY|foreign key/i,
+  );
+  await assert.rejects(
+    db.createInvoiceWithItems({ ...invoice, id: "invoice-invalid-cents", amount: 1.005 }, []),
+    /non-negative amount/i,
+  );
+  for (const [id, amount] of [
+    ["invoice-tenth-a", 0.1],
+    ["invoice-tenth-b", 0.2],
+  ]) {
+    await db.createInvoiceWithItems({ ...invoice, id, amount }, []);
+  }
+  await db.recordPaymentWithAllocations(
+    {
+      id: "payment-decimal-allocation",
+      schoolId: "school-1",
+      studentId: "student-1",
+      reference: "REF-DECIMAL-ALLOCATION",
+      amount: 0.3,
+      paidAt: financeStamp,
+    },
+    [
+      { id: "allocation-tenth-a", invoiceId: "invoice-tenth-a", amount: 0.1 },
+      { id: "allocation-tenth-b", invoiceId: "invoice-tenth-b", amount: 0.2 },
+    ],
+  );
+  assert.equal(
+    toCents(
+      Number(
+        (
+          await db.all(
+            "SELECT SUM(amount) AS total FROM payment_allocations WHERE payment_id = ?",
+            ["payment-decimal-allocation"],
+          )
+        )[0].total,
+      ),
+    ),
+    30,
+  );
+  await assert.rejects(
+    db.recordPaymentWithAllocations(
+      {
+        id: "payment-invalid-cents",
+        schoolId: "school-1",
+        studentId: "student-1",
+        reference: "REF-INVALID-CENTS",
+        amount: 1.005,
+        paidAt: financeStamp,
+      },
+      [],
+    ),
+    /Payment amount and allocations are invalid/,
   );
   assert.equal(await db.findById("fees", "invoice-rollback"), null);
   await db.recordPaymentWithAllocations(

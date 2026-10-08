@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { AsyncLocalStorage } = require("async_hooks");
+const { toCents } = require("./money");
 const Database = require("better-sqlite3");
 const { Pool } = require("pg");
 const legacyMigration = require("../migrations/002_import_legacy_store");
@@ -741,14 +742,14 @@ async function markPasswordResetsUsed(userId, usedAt) {
 }
 
 async function createInvoiceWithItems(invoice, items) {
+  const invoiceCents = toCents(invoice?.amount);
   if (
     !invoice?.id ||
     !invoice.schoolId ||
     !invoice.studentId ||
-    !Number.isFinite(Number(invoice.amount)) ||
-    Number(invoice.amount) < 0
+    invoiceCents === null
   ) {
-    throw new TypeError("Invoice ID, school, student, and non-negative amount are required.");
+    throw new TypeError("Invoice ID, school, student, and a non-negative amount with at most two decimal places are required.");
   }
   if (!Array.isArray(items)) {
     throw new TypeError("Invoice items must be an array.");
@@ -760,15 +761,15 @@ async function createInvoiceWithItems(invoice, items) {
       !item.description.trim() ||
       !Number.isFinite(Number(item.quantity ?? 1)) ||
       Number(item.quantity ?? 1) <= 0 ||
-      !Number.isFinite(Number(item.unitAmount)) ||
-      Number(item.unitAmount) < 0
+      toCents(item.unitAmount) === null
     ) {
-      throw new TypeError("Invoice items require an ID, description, positive quantity, and non-negative unit amount.");
+      throw new TypeError("Invoice items require an ID, description, positive quantity, and a non-negative unit amount with at most two decimal places.");
     }
   }
 
   return transaction(async () => {
-    await insert("fees", invoice);
+    const normalizedInvoice = { ...invoice, amount: invoiceCents / 100 };
+    await insert("fees", normalizedInvoice);
     const createdAt = invoice.createdAt || new Date().toISOString();
     for (const item of items) {
       const values = {
@@ -777,7 +778,7 @@ async function createInvoiceWithItems(invoice, items) {
         fee_structure_id: item.feeStructureId || null,
         description: item.description.trim(),
         quantity: Number(item.quantity ?? 1),
-        unit_amount: Number(item.unitAmount),
+        unit_amount: toCents(item.unitAmount) / 100,
         created_at: item.createdAt || createdAt,
         updated_at: item.updatedAt || item.createdAt || createdAt,
       };
@@ -785,7 +786,7 @@ async function createInvoiceWithItems(invoice, items) {
       if (usePostgres) await queryPostgres(sql, Object.values(values));
       else await querySqlite("run", sql, Object.values(values));
     }
-    return { ...invoice, items };
+    return { ...normalizedInvoice, items };
   });
 }
 
@@ -802,22 +803,21 @@ async function recordPaymentWithAllocations(payment, allocations) {
   if (!Array.isArray(allocations)) {
     throw new TypeError("Payment allocations must be an array.");
   }
-  const paymentAmount = Number(payment.amount);
-  const allocationTotal = allocations.reduce(
-    (total, allocation) => total + Number(allocation.amount),
-    0,
+  const paymentCents = toCents(payment.amount);
+  const allocationCents = allocations.map((allocation) =>
+    toCents(allocation.amount),
   );
   if (
-    !Number.isFinite(paymentAmount) ||
-    paymentAmount <= 0 ||
+    paymentCents === null ||
+    paymentCents <= 0 ||
     allocations.some(
-      (allocation) =>
+      (allocation, index) =>
         !allocation.id ||
         !allocation.invoiceId ||
-        !Number.isFinite(Number(allocation.amount)) ||
-        Number(allocation.amount) <= 0,
+        allocationCents[index] === null ||
+        allocationCents[index] <= 0,
     ) ||
-    allocationTotal > paymentAmount
+    allocationCents.reduce((total, cents) => total + cents, 0) > paymentCents
   ) {
     throw new TypeError("Payment amount and allocations are invalid.");
   }
@@ -843,10 +843,8 @@ async function recordPaymentWithAllocations(payment, allocations) {
       const allocated = usePostgres
         ? (await queryPostgres(allocatedSql, [allocation.invoiceId])).rows[0].total
         : (await querySqlite("get", allocatedSql, [allocation.invoiceId])).total;
-      const remainingCents =
-        Math.round(Number(invoice.amount) * 100) -
-        Math.round(Number(allocated) * 100);
-      if (Math.round(Number(allocation.amount) * 100) > remainingCents) {
+      const remainingCents = toCents(invoice.amount) - toCents(allocated);
+      if (toCents(allocation.amount) > remainingCents) {
         const error = new Error("Payment allocation exceeds the invoice balance.");
         error.statusCode = 409;
         error.code = "INVOICE_BALANCE_EXCEEDED";
@@ -859,7 +857,7 @@ async function recordPaymentWithAllocations(payment, allocations) {
       school_id: payment.schoolId,
       student_id: payment.studentId,
       reference: payment.reference,
-      amount: paymentAmount,
+      amount: paymentCents / 100,
       method: payment.method || null,
       paid_at: payment.paidAt || new Date().toISOString(),
       created_at: payment.createdAt || new Date().toISOString(),
@@ -878,7 +876,7 @@ async function recordPaymentWithAllocations(payment, allocations) {
         id: allocation.id,
         payment_id: payment.id,
         invoice_id: allocation.invoiceId,
-        amount: Number(allocation.amount),
+        amount: toCents(allocation.amount) / 100,
         created_at: allocation.createdAt || createdAt,
       };
       const insertAllocation = insertSql("payment_allocations", allocationValues);
@@ -888,7 +886,14 @@ async function recordPaymentWithAllocations(payment, allocations) {
         await querySqlite("run", insertAllocation, Object.values(allocationValues));
       }
     }
-    return { ...payment, amount: paymentAmount, allocations };
+    return {
+      ...payment,
+      amount: paymentCents / 100,
+      allocations: allocations.map((allocation, index) => ({
+        ...allocation,
+        amount: allocationCents[index] / 100,
+      })),
+    };
   });
 }
 

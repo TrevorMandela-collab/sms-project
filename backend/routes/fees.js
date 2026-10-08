@@ -1,5 +1,6 @@
 const createCrudRouter = require("../utils/crudRouterFactory");
 const db = require("../utils/db");
+const { toCents } = require("../utils/money");
 
 // Each fee record: { id, studentId, studentName, class, amount, due, status }
 module.exports = createCrudRouter("fees", {
@@ -17,8 +18,8 @@ module.exports = createCrudRouter("fees", {
   filterFields: ["status", "class"],
   sortFields: ["studentName", "amount", "due", "createdAt"],
   validate: async (fee, { user }) => {
-    if (!Number.isFinite(Number(fee.amount)) || Number(fee.amount) < 0) {
-      const error = new Error("Fee amount must be zero or greater.");
+    if (toCents(fee.amount) === null) {
+      const error = new Error("Fee amount must be non-negative with at most two decimal places.");
       error.statusCode = 400;
       error.code = "INVALID_FEE_AMOUNT";
       throw error;

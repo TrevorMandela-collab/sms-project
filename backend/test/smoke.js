@@ -696,6 +696,20 @@ async function run() {
     assert.equal(invalidFee.status, 400, "negative fees must be rejected");
     const feeError = await invalidFee.json();
     assert.equal(feeError.error.code, "INVALID_FEE_AMOUNT");
+    const excessPrecisionFee = await request("/fees", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        studentId: student.id,
+        amount: 1.005,
+        status: "outstanding",
+      }),
+    });
+    assert.equal(
+      excessPrecisionFee.status,
+      400,
+      "fees with more than two decimal places must be rejected",
+    );
 
     const forgotResponse = await request("/auth/forgot-password", {
       method: "POST",
