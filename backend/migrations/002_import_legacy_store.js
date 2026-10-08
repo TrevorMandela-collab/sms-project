@@ -336,15 +336,16 @@ function mapRecord(collection, record, dialect, fallbackTimestamp = new Date().t
     } catch {
       throw new Error(`invalid field ${apiField}`);
     }
-    if (collection === "users" && !record.passwordHash && record.password_hash) {
-      values.password_hash = record.password_hash;
-      consumed.add("password_hash");
-    }
-    if (collection === "password-resets" && !record.tokenHash && record.token_hash) {
-      values.token_hash = record.token_hash;
-      consumed.add("token_hash");
-    }
     consumed.add(apiField);
+  }
+
+  if (collection === "users" && !record.passwordHash && record.password_hash) {
+    values.password_hash = record.password_hash;
+    consumed.add("password_hash");
+  }
+  if (collection === "password-resets" && !record.tokenHash && record.token_hash) {
+    values.token_hash = record.token_hash;
+    consumed.add("token_hash");
   }
 
   if (collection === "users") {

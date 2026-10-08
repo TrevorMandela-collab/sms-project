@@ -827,14 +827,30 @@ async function recordPaymentWithAllocations(payment, allocations) {
 
   return transaction(async () => {
     const placeholder = (index) => usePostgres ? `$${index}` : "?";
-    for (const allocation of allocations) {
+    for (const allocation of [...allocations].sort((left, right) =>
+      left.invoiceId.localeCompare(right.invoiceId),
+    )) {
       const values = [allocation.invoiceId, payment.schoolId, payment.studentId];
-      const sql = `SELECT id FROM invoices WHERE id = ${placeholder(1)} AND school_id = ${placeholder(2)} AND student_id = ${placeholder(3)}`;
+      const lock = usePostgres ? " FOR UPDATE" : "";
+      const sql = `SELECT id, amount FROM invoices WHERE id = ${placeholder(1)} AND school_id = ${placeholder(2)} AND student_id = ${placeholder(3)}${lock}`;
       const invoice = usePostgres
         ? (await queryPostgres(sql, values)).rows[0]
         : await querySqlite("get", sql, values);
       if (!invoice) {
         throw new Error("Payment allocation invoice was not found for this student and school.");
+      }
+      const allocatedSql = `SELECT COALESCE(SUM(amount), 0) AS total FROM payment_allocations WHERE invoice_id = ${placeholder(1)}`;
+      const allocated = usePostgres
+        ? (await queryPostgres(allocatedSql, [allocation.invoiceId])).rows[0].total
+        : (await querySqlite("get", allocatedSql, [allocation.invoiceId])).total;
+      const remainingCents =
+        Math.round(Number(invoice.amount) * 100) -
+        Math.round(Number(allocated) * 100);
+      if (Math.round(Number(allocation.amount) * 100) > remainingCents) {
+        const error = new Error("Payment allocation exceeds the invoice balance.");
+        error.statusCode = 409;
+        error.code = "INVOICE_BALANCE_EXCEEDED";
+        throw error;
       }
     }
 

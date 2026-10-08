@@ -3,6 +3,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
+const { mapRecord } = require("../migrations/002_import_legacy_store");
 
 if (process.env.TEST_DATABASE_URL) {
   const databaseName = new URL(process.env.TEST_DATABASE_URL).pathname
@@ -37,6 +38,29 @@ function deferred() {
 }
 
 async function run() {
+  const hashAlias = mapRecord(
+    "users",
+    {
+      id: "hash-alias-user",
+      password_hash: "bcrypt-hash",
+      createdAt: new Date().toISOString(),
+    },
+    "sqlite",
+  );
+  assert.equal(hashAlias.password_hash, "bcrypt-hash");
+  assert.equal(Object.hasOwn(hashAlias.extra_data, "password_hash"), false);
+  const resetHashAlias = mapRecord(
+    "password-resets",
+    {
+      id: "reset-alias",
+      token_hash: "sha256-hash",
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+    },
+    "sqlite",
+  );
+  assert.equal(resetHashAlias.token_hash, "sha256-hash");
+  assert.equal(Object.hasOwn(resetHashAlias.extra_data, "token_hash"), false);
   await db.ensureSchema();
   const existingMigrations = await db.all(
     "SELECT COUNT(*) AS count FROM schema_migrations",
@@ -191,6 +215,24 @@ async function run() {
   await assert.rejects(
     db.recordPaymentWithAllocations(
       {
+        id: "payment-over-invoice",
+        schoolId: "school-1",
+        studentId: "student-1",
+        reference: "REF-OVER-INVOICE",
+        amount: 20,
+        paidAt: financeStamp,
+      },
+      [{ id: "payment-allocation-over", invoiceId: invoice.id, amount: 20 }],
+    ),
+    (error) => error.code === "INVOICE_BALANCE_EXCEEDED",
+  );
+  assert.equal(
+    Number((await db.all("SELECT COUNT(*) AS count FROM payments WHERE id = ?", ["payment-over-invoice"]))[0].count),
+    0,
+  );
+  await assert.rejects(
+    db.recordPaymentWithAllocations(
+      {
         id: "payment-rollback",
         schoolId: "school-1",
         studentId: "student-1",
@@ -198,7 +240,7 @@ async function run() {
         amount: 50,
         paidAt: financeStamp,
       },
-      [{ id: "payment-allocation-1", invoiceId: invoice.id, amount: 50 }],
+      [{ id: "payment-allocation-1", invoiceId: "invoice-1", amount: 50 }],
     ),
     /UNIQUE|unique/i,
   );
