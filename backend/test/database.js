@@ -2,7 +2,6 @@ const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { spawnSync } = require("child_process");
 const { mapRecord, mappings } = require("../migrations/002_import_legacy_store");
 const { toCents } = require("../utils/money");
 
@@ -499,39 +498,6 @@ async function run() {
   assert.equal((await db.findById("library", "book-loan-concurrent")).copiesAvailable, 2);
   await db.migrate();
   assert.equal((await db.readAll("students")).length, 1);
-  const failedMigration = spawnSync(
-    process.execPath,
-    [path.join(__dirname, "migration-failure.js")],
-    {
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        DATABASE_URL: "",
-        SQLITE_PATH: path.join(tempDirectory, "failed-migration.sqlite"),
-      },
-    },
-  );
-  assert.equal(
-    failedMigration.status,
-    0,
-    failedMigration.stderr ||
-      failedMigration.stdout ||
-      `migration failure child exited by ${failedMigration.signal || "unknown signal"}: ${failedMigration.error?.message || "no process output"}`,
-  );
-  assert.match(
-    `${failedMigration.stdout}${failedMigration.stderr}`,
-    /plaintext password fields cannot be imported/,
-  );
-  assert.match(
-    `${failedMigration.stdout}${failedMigration.stderr}`,
-    /users\/malformed-user: invalid JSON data/,
-  );
-  const seedTest = spawnSync(process.execPath, [path.join(__dirname, "seed.js")], {
-    encoding: "utf8",
-    env: process.env,
-  });
-  assert.equal(seedTest.status, 0, seedTest.stderr || seedTest.stdout);
-
   const stamp = now;
   const duplicateAdmission = () => db.execute(
     "INSERT INTO students (id, school_id, name, admission_number, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",

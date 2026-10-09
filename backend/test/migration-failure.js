@@ -1,4 +1,12 @@
 const assert = require("assert");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
+const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sms-migration-failure-test-"));
+process.env.DATABASE_URL = "";
+process.env.SQLITE_PATH = path.join(directory, "migration-failure.sqlite");
+
 const db = require("../utils/db");
 
 async function run() {
@@ -47,7 +55,24 @@ async function run() {
     ],
   );
 
-  await assert.rejects(db.migrate(), /Database migration 002 failed/);
+  const migrationErrors = [];
+  const originalConsoleError = console.error;
+  console.error = (...args) => {
+    migrationErrors.push(args.join(" "));
+  };
+  try {
+    await assert.rejects(db.migrate(), /Database migration 002 failed/);
+  } finally {
+    console.error = originalConsoleError;
+  }
+  assert.match(
+    migrationErrors.join("\n"),
+    /users\/malformed-user: invalid JSON data/,
+  );
+  assert.match(
+    migrationErrors.join("\n"),
+    /users\/invalid-user: plaintext password fields cannot be imported/,
+  );
   const versions = await db.all("SELECT version FROM schema_migrations ORDER BY version");
   assert.deepEqual(versions.map((row) => row.version), ["001"]);
   assert.equal((await db.all("SELECT COUNT(*) AS count FROM users"))[0].count, 0);
@@ -60,4 +85,7 @@ run()
     console.error(error.message);
     process.exitCode = 1;
   })
-  .finally(() => db.close());
+  .finally(async () => {
+    await db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
