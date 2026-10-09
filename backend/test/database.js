@@ -54,6 +54,27 @@ async function run() {
   );
   assert.equal(hashAlias.password_hash, "bcrypt-hash");
   assert.equal(Object.hasOwn(hashAlias.extra_data, "password_hash"), false);
+  assert.equal(
+    mapRecord(
+      "schools",
+      { id: "false-school", onboardingCompleted: "false", createdAt: new Date().toISOString() },
+      "sqlite",
+    ).onboarding_completed,
+    0,
+  );
+  assert.throws(
+    () =>
+      mapRecord(
+        "students",
+        {
+          id: "invalid-date",
+          dateOfBirth: "2026-02-30",
+          createdAt: new Date().toISOString(),
+        },
+        "sqlite",
+      ),
+    /invalid field dateOfBirth/,
+  );
   const resetHashAlias = mapRecord(
     "password-resets",
     {
@@ -494,6 +515,10 @@ async function run() {
   assert.match(
     `${failedMigration.stdout}${failedMigration.stderr}`,
     /plaintext password fields cannot be imported/,
+  );
+  assert.match(
+    `${failedMigration.stdout}${failedMigration.stderr}`,
+    /users\/malformed-user: invalid JSON data/,
   );
   const seedTest = spawnSync(process.execPath, [path.join(__dirname, "seed.js")], {
     encoding: "utf8",

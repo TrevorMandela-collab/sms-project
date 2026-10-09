@@ -271,7 +271,15 @@ const importOrder = [
 function convert(value, type) {
   if (value === undefined || value === null || value === "") return null;
   if (type === "json") return value;
-  if (type === "boolean") return Boolean(value);
+  if (type === "boolean") {
+    if (value === true || value === 1 || value === "1" || value === "true") {
+      return true;
+    }
+    if (value === false || value === 0 || value === "0" || value === "false") {
+      return false;
+    }
+    throw new Error("invalid boolean");
+  }
   if (type === "integer") {
     const result = Number(value);
     if (!Number.isSafeInteger(result)) throw new Error("invalid integer");
@@ -284,7 +292,11 @@ function convert(value, type) {
   }
   if (type === "date") {
     const date = String(value).slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) {
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+      Number.isNaN(Date.parse(`${date}T00:00:00Z`)) ||
+      new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date
+    ) {
       throw new Error("invalid date");
     }
     return date;
@@ -420,12 +432,16 @@ async function up({ all, execute, transaction, dialect }) {
   }
 
   const groups = new Map();
-  for (const row of source) {
-    if (!groups.has(row.collection)) groups.set(row.collection, []);
-    const record = typeof row.data === "string" ? JSON.parse(row.data) : row.data;
-    groups.get(row.collection).push({ row, record });
-  }
   const failures = [];
+  for (const row of source) {
+    try {
+      if (!groups.has(row.collection)) groups.set(row.collection, []);
+      const record = typeof row.data === "string" ? JSON.parse(row.data) : row.data;
+      groups.get(row.collection).push({ row, record });
+    } catch (error) {
+      failures.push(`${row.collection}/${row.id}: invalid JSON data`);
+    }
+  }
   const counts = {};
   const parameter = (index) => (dialect === "postgres" ? `$${index}` : "?");
 
@@ -579,7 +595,10 @@ async function up({ all, execute, transaction, dialect }) {
     }
   }
   if (failures.length) {
-    throw new Error(`Legacy import was rolled back. Invalid records: ${failures.slice(0, 20).join("; ")}`);
+    const omitted = failures.length - 20;
+    throw new Error(
+      `Legacy import was rolled back. ${failures.length} invalid record or relationship issue(s): ${failures.slice(0, 20).join("; ")}${omitted > 0 ? `; ${omitted} additional issue(s) omitted` : ""}`,
+    );
   }
   console.log(`[db] Legacy import verified: ${source.length} records across ${Object.keys(counts).length} collections.`);
 }

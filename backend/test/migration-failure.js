@@ -24,6 +24,14 @@ async function run() {
     "INSERT INTO store (collection, id, data) VALUES (?, ?, ?)",
     [
       "users",
+      "malformed-user",
+      "{invalid-json",
+    ],
+  );
+  await db.execute(
+    "INSERT INTO store (collection, id, data) VALUES (?, ?, ?)",
+    [
+      "users",
       "invalid-user",
       JSON.stringify({
         id: "invalid-user",
@@ -44,7 +52,7 @@ async function run() {
   assert.deepEqual(versions.map((row) => row.version), ["001"]);
   assert.equal((await db.all("SELECT COUNT(*) AS count FROM users"))[0].count, 0);
   assert.equal((await db.all("SELECT COUNT(*) AS count FROM schools"))[0].count, 0);
-  assert.equal((await db.all("SELECT COUNT(*) AS count FROM store"))[0].count, 2);
+  assert.equal((await db.all("SELECT COUNT(*) AS count FROM store"))[0].count, 3);
 }
 
 run()

@@ -40,6 +40,17 @@ database whose name includes `test`, then `npm run test:postgres`. The test
 runner refuses a database with existing migration or legacy data, and it
 leaves the test schema in place; provision a fresh disposable database for
 each run. Do not point test commands at development or production databases.
+In Windows PowerShell, set the variable for the current shell and run the test:
+
+```powershell
+$env:TEST_DATABASE_URL = "postgresql://sms_test:YOUR_TEST_PASSWORD@localhost:5432/sms_test"
+npm run test:postgres
+Remove-Item Env:TEST_DATABASE_URL
+```
+
+The repository CI runs the complete SQLite suite and a PostgreSQL 16
+integration suite against disposable service databases on pushes and pull
+requests.
 
 To seed an empty development database, set `DEMO_SEED_PASSWORD` to a unique
 password of at least 12 characters, then run `npm run seed`. The command only
