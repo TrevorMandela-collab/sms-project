@@ -11,11 +11,23 @@ async function run() {
   await db.execute(
     "INSERT INTO store (collection, id, data) VALUES (?, ?, ?)",
     [
+      "schools",
+      "valid-school",
+      JSON.stringify({
+        id: "valid-school",
+        name: "Valid Before Invalid",
+        createdAt: new Date().toISOString(),
+      }),
+    ],
+  );
+  await db.execute(
+    "INSERT INTO store (collection, id, data) VALUES (?, ?, ?)",
+    [
       "users",
       "invalid-user",
       JSON.stringify({
         id: "invalid-user",
-        schoolId: "missing-school",
+        schoolId: "valid-school",
         name: "Invalid",
         email: "invalid@example.test",
         passwordHash: "hash",
@@ -31,7 +43,8 @@ async function run() {
   const versions = await db.all("SELECT version FROM schema_migrations ORDER BY version");
   assert.deepEqual(versions.map((row) => row.version), ["001"]);
   assert.equal((await db.all("SELECT COUNT(*) AS count FROM users"))[0].count, 0);
-  assert.equal((await db.all("SELECT COUNT(*) AS count FROM store"))[0].count, 1);
+  assert.equal((await db.all("SELECT COUNT(*) AS count FROM schools"))[0].count, 0);
+  assert.equal((await db.all("SELECT COUNT(*) AS count FROM store"))[0].count, 2);
 }
 
 run()
