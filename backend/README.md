@@ -6,6 +6,8 @@ exams, timetable, and library.
 
 ## Setup
 
+Use Node.js 22 or newer; `better-sqlite3` 13 requires Node.js 22+.
+
 ```bash
 cd backend
 npm install
