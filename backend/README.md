@@ -43,7 +43,7 @@ each run. Do not point test commands at development or production databases.
 In Windows PowerShell, set the variable for the current shell and run the test:
 
 ```powershell
-$env:TEST_DATABASE_URL = "postgresql://sms_test:YOUR_TEST_PASSWORD@localhost:5432/sms_test"
+$env:TEST_DATABASE_URL = "postgresql://sms_test:sms_test_password@localhost:5432/sms_test"
 npm run test:postgres
 Remove-Item Env:TEST_DATABASE_URL
 ```
@@ -96,12 +96,16 @@ Migration `003` checks existing school-owned relationships and installs
 database triggers that reject cross-school links on later inserts and updates.
 If it finds an existing tenant mismatch, the migration fails without removing
 records; correct or reconcile the reported relationship and rerun migrations.
+Migration `005` also prevents changing a referenced record's school in a way
+that would make an existing relationship cross-school.
 
 SQLite and PostgreSQL use the same table definitions and data mapping.
 `backend/migrations/001_relational_schema.js` contains the relational schema;
 `002_import_legacy_store.js` is the versioned legacy import,
 `003_enforce_school_relationships.js` adds tenant-consistency enforcement,
-and `004_remove_legacy_store.js` removes the converted source table.
+`004_remove_legacy_store.js` removes the converted source table, and
+`005_guard_school_reassignment.js` protects those relationships from unsafe
+school changes.
 Use the same migration command against development, test, and production
 databases.
 The data layer also exposes atomic `createInvoiceWithItems` and

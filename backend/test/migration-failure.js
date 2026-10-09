@@ -54,6 +54,38 @@ async function run() {
       }),
     ],
   );
+  for (const id of ["duplicate-user-a", "duplicate-user-b"]) {
+    await db.execute(
+      "INSERT INTO store (collection, id, data) VALUES (?, ?, ?)",
+      [
+        "users",
+        id,
+        JSON.stringify({
+          id,
+          schoolId: "valid-school",
+          name: id,
+          email: "duplicate@example.test",
+          passwordHash: "hash",
+          role: "admin",
+          status: "active",
+          createdAt: new Date().toISOString(),
+        }),
+      ],
+    );
+  }
+  await db.execute(
+    "INSERT INTO store (collection, id, data) VALUES (?, ?, ?)",
+    [
+      "students",
+      "orphan-student",
+      JSON.stringify({
+        id: "orphan-student",
+        schoolId: "missing-school",
+        name: "Orphan",
+        createdAt: new Date().toISOString(),
+      }),
+    ],
+  );
 
   const migrationErrors = [];
   const originalConsoleError = console.error;
@@ -73,11 +105,38 @@ async function run() {
     migrationErrors.join("\n"),
     /users\/invalid-user: plaintext password fields cannot be imported/,
   );
+  assert.match(
+    migrationErrors.join("\n"),
+    /users\/duplicate-user-[ab]: .*idx_users_email_normalized|users\/duplicate-user-[ab]: .*unique/i,
+  );
+  assert.match(
+    migrationErrors.join("\n"),
+    /students\/orphan-student: .*FOREIGN KEY|students\/orphan-student: .*foreign key/i,
+  );
   const versions = await db.all("SELECT version FROM schema_migrations ORDER BY version");
   assert.deepEqual(versions.map((row) => row.version), ["001"]);
   assert.equal((await db.all("SELECT COUNT(*) AS count FROM users"))[0].count, 0);
   assert.equal((await db.all("SELECT COUNT(*) AS count FROM schools"))[0].count, 0);
-  assert.equal((await db.all("SELECT COUNT(*) AS count FROM store"))[0].count, 3);
+  assert.equal((await db.all("SELECT COUNT(*) AS count FROM students"))[0].count, 0);
+  assert.equal((await db.all("SELECT COUNT(*) AS count FROM store"))[0].count, 6);
+
+  await db.execute(
+    "DELETE FROM store WHERE (collection = ? AND id IN (?, ?, ?, ?)) OR (collection = ? AND id = ?)",
+    [
+      "users",
+      "malformed-user",
+      "invalid-user",
+      "duplicate-user-a",
+      "duplicate-user-b",
+      "students",
+      "orphan-student",
+    ],
+  );
+  const recoveredVersions = await db.migrate();
+  assert.deepEqual(recoveredVersions, ["001", "002", "003", "004", "005"]);
+  assert.equal((await db.findById("schools", "valid-school")).name, "Valid Before Invalid");
+  assert.equal((await db.all("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'store'")).length, 0);
+  console.log("Migration failure recovery tests passed");
 }
 
 run()

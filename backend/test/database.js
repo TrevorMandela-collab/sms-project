@@ -146,7 +146,7 @@ async function run() {
     );
   }
   const versions = await db.migrate();
-  assert.deepEqual(versions, ["001", "002", "003", "004"]);
+  assert.deepEqual(versions, ["001", "002", "003", "004", "005"]);
   for (const [collection, count] of Object.entries(expectedCounts)) {
     const table = mappings[collection].table;
     const result = await db.all(`SELECT COUNT(*) AS count FROM ${table}`);
@@ -224,7 +224,7 @@ async function run() {
   assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM teacher_assignments"))[0].count), 1);
   assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM class_subjects"))[0].count), 1);
   assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM chat_members"))[0].count), 1);
-  assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM schema_migrations"))[0].count), 4);
+  assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM schema_migrations"))[0].count), 5);
   assert.equal((await db.findChatByInviteCode("school-1", "chat-code")).id, "chat-1");
   assert.equal((await db.readByChatId("chat-1")).length, 1);
   const financeStamp = new Date().toISOString();
@@ -530,7 +530,7 @@ async function run() {
       "INSERT INTO students (id, school_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
       ["student-no-name", "school-1", null, "active", stamp, stamp],
     ),
-    /NOT NULL|not null/i,
+    /not[- ]null/i,
   );
   await db.execute(
     "INSERT INTO schools (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
@@ -554,6 +554,25 @@ async function run() {
     ),
     /cross-school relationship/i,
   );
+  await assert.rejects(
+    db.execute(
+      "UPDATE classes SET school_id = ? WHERE id = ?",
+      ["school-2", "class-1"],
+    ),
+    /cross-school relationship/i,
+  );
+  assert.equal(
+    (await db.findById("classes", "class-1")).schoolId,
+    "school-1",
+  );
+  await assert.rejects(
+    db.execute(
+      "UPDATE users SET school_id = ? WHERE id = ?",
+      ["school-2", "admin-1"],
+    ),
+    /cross-school relationship/i,
+  );
+  assert.equal((await db.findById("users", "admin-1")).schoolId, "school-1");
   await assert.rejects(
     db.execute(
       "INSERT INTO assessment_results (id, school_id, student_id, score, max_score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",

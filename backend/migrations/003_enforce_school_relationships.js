@@ -246,4 +246,4 @@ async function up({ execute, all, dialect }) {
   }
 }
 
-module.exports = { up };
+module.exports = { up, relationships };

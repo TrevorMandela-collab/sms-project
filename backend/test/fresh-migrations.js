@@ -11,7 +11,7 @@ const db = require("../utils/db");
 
 async function run() {
   const versions = await db.migrate();
-  assert.deepEqual(versions, ["001", "002", "003", "004"]);
+  assert.deepEqual(versions, ["001", "002", "003", "004", "005"]);
   assert.deepEqual(await db.migrate(), versions);
 
   const legacyStore = await db.all(
