@@ -375,27 +375,12 @@ async function ensureSchema() {
     schemaReady = (async () => {
       if (usePostgres) {
         await queryPostgres(`
-          CREATE TABLE IF NOT EXISTS store (
-            collection TEXT NOT NULL,
-            id TEXT NOT NULL,
-            data JSONB NOT NULL,
-            PRIMARY KEY (collection, id)
-          );
           CREATE TABLE IF NOT EXISTS schema_migrations (
             version TEXT PRIMARY KEY,
             applied_at TIMESTAMPTZ NOT NULL
           );
         `);
       } else {
-        await querySqlite(
-          "run",
-          `CREATE TABLE IF NOT EXISTS store (
-            collection TEXT NOT NULL,
-            id TEXT NOT NULL,
-            data TEXT NOT NULL,
-            PRIMARY KEY (collection, id)
-          )`,
-        );
         await querySqlite(
           "run",
           `CREATE TABLE IF NOT EXISTS schema_migrations (

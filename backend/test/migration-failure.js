@@ -4,6 +4,11 @@ const db = require("../utils/db");
 async function run() {
   await db.ensureSchema();
   await db.execute(
+    db.dialect === "postgres"
+      ? "CREATE TABLE store (collection TEXT NOT NULL, id TEXT NOT NULL, data JSONB NOT NULL, PRIMARY KEY (collection, id))"
+      : "CREATE TABLE store (collection TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (collection, id))",
+  );
+  await db.execute(
     "INSERT INTO store (collection, id, data) VALUES (?, ?, ?)",
     [
       "users",

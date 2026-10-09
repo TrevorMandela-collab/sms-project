@@ -233,7 +233,7 @@ async function run() {
         author: "East African Education Publishers",
         isbn: "9789966257402",
         copiesTotal: 12,
-        copiesAvailable: 11,
+        copiesAvailable: 12,
         category: "Mathematics",
       },
     },

@@ -72,14 +72,15 @@ do not trust client-supplied forwarding headers.
 
 ## Data storage
 
-**Migration status:** the API reads and writes the normalized relational
-tables. Versioned migrations run transactionally at server startup or with
-`npm run db:migrate`. Migration `002` imports the legacy `store` records,
-preserves IDs and unmodeled fields, creates relational links for legacy class
-assignments, parent-child links, chat members, and library loans, and checks
-the imported row counts. Invalid or orphaned data stops that migration and
-leaves the source `store` intact. Do not remove `store`; it is retained as a
-read-only recovery source and is not used by mapped API collections.
+**Migration status:** the API reads and writes normalized relational tables;
+production persistence does not use the legacy `store` table. Versioned
+migrations run transactionally at server startup or with `npm run db:migrate`.
+Migration `002` converts legacy `store` records, preserves IDs and unmodeled
+fields, creates relational links for legacy class assignments, parent-child
+links, chat members, and library loans, and verifies every imported collection
+count. Invalid or orphaned data stops the migration and leaves the source
+table intact. Migration `004` removes the legacy table only after conversion
+succeeds. A fresh database can be created using migrations alone.
 Migration `003` checks existing school-owned relationships and installs
 database triggers that reject cross-school links on later inserts and updates.
 If it finds an existing tenant mismatch, the migration fails without removing
@@ -87,8 +88,9 @@ records; correct or reconcile the reported relationship and rerun migrations.
 
 SQLite and PostgreSQL use the same table definitions and data mapping.
 `backend/migrations/001_relational_schema.js` contains the relational schema;
-`002_import_legacy_store.js` is the versioned legacy import, and
-`003_enforce_school_relationships.js` adds tenant-consistency enforcement.
+`002_import_legacy_store.js` is the versioned legacy import,
+`003_enforce_school_relationships.js` adds tenant-consistency enforcement,
+and `004_remove_legacy_store.js` removes the converted source table.
 Use the same migration command against development, test, and production
 databases.
 The data layer also exposes atomic `createInvoiceWithItems` and
@@ -264,10 +266,9 @@ curl -X POST http://localhost:4000/api/students \
 
 ## Remaining architecture work
 
-Some frontend dashboard content remains static. Relational database
-migrations, a repeatable legacy-data conversion, granular permissions, audit
-logs, role-specific dashboards, and the remaining finance/academic workflows
-are not yet implemented.
+Some frontend dashboard content remains static. Granular permissions,
+role-specific dashboards, and the remaining finance/academic workflows are
+future work.
 
 ## Local verification
 

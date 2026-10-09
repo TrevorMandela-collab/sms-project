@@ -3,7 +3,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
-const { mapRecord } = require("../migrations/002_import_legacy_store");
+const { mapRecord, mappings } = require("../migrations/002_import_legacy_store");
 const { toCents } = require("../utils/money");
 
 if (process.env.TEST_DATABASE_URL) {
@@ -70,17 +70,29 @@ async function run() {
   const existingMigrations = await db.all(
     "SELECT COUNT(*) AS count FROM schema_migrations",
   );
-  const existingLegacyRows = await db.all(
-    "SELECT COUNT(*) AS count FROM store",
-  );
+  const existingLegacyTable =
+    db.dialect === "postgres"
+      ? await db.all("SELECT to_regclass('store') AS name")
+      : await db.all(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'store'",
+        );
+  const hasExistingLegacyTable =
+    db.dialect === "postgres"
+      ? Boolean(existingLegacyTable[0]?.name)
+      : existingLegacyTable.length > 0;
   if (
     Number(existingMigrations[0].count) !== 0 ||
-    Number(existingLegacyRows[0].count) !== 0
+    hasExistingLegacyTable
   ) {
     throw new Error(
       "Database integration tests require a fresh, dedicated test database.",
     );
   }
+  await db.execute(
+    db.dialect === "postgres"
+      ? "CREATE TABLE store (collection TEXT NOT NULL, id TEXT NOT NULL, data JSONB NOT NULL, PRIMARY KEY (collection, id))"
+      : "CREATE TABLE store (collection TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (collection, id))",
+  );
   const now = new Date().toISOString();
   const legacy = [
     ["schools", { id: "school-1", name: "Migration School", createdBy: null, createdAt: now }],
@@ -98,26 +110,57 @@ async function run() {
     ["library-loans", { id: "loan-1", schoolId: "school-1", itemId: "book-1", itemTitle: "Reader", studentId: "student-1", studentName: "Test Student", borrowedDate: now, dueDate: now, createdAt: now }],
     ["timetable", { id: "period-1", schoolId: "school-1", classId: "class-1", className: "Grade 1", teacherId: "teacher-1", subject: "Reading", day: "Monday", period: 1, startTime: "08:00", endTime: "08:40", createdAt: now }],
     ["announcements", { id: "announcement-1", schoolId: "school-1", title: "Notice", body: "Body", createdAt: now }],
-    ["events", { id: "event-1", schoolId: "school-1", name: "Meeting", date: "2026-10-08", createdAt: now }],
+    ["events", { id: "event-1", schoolId: "school-1", name: "Meeting", date: "2026-10-08", customContext: { source: "legacy-event" }, createdAt: now }],
     ["invite-codes", { id: "invite-1", schoolId: "school-1", code: "ABCD-EFGH", role: "student", studentId: "student-1", createdAt: now, expiresAt: now, used: false }],
     ["chats", { id: "chat-1", schoolId: "school-1", name: "General", memberIds: ["admin-1"], inviteCode: "CHAT-CODE", createdAt: now }],
     ["chat-messages", { id: "message-1", schoolId: "school-1", chatId: "chat-1", senderId: "admin-1", text: "Hello", reactions: {}, createdAt: now }],
     ["audit-logs", { id: "audit-1", schoolId: "school-1", actorUserId: "admin-1", action: "TEST", entityType: "test", timestamp: now, metadata: {}, createdAt: now }],
     ["password-resets", { id: "reset-1", userId: "admin-1", tokenHash: "hashed-token", expiresAt: new Date(Date.now() + 60000).toISOString(), used: false, createdAt: now }],
   ];
+  const expectedCounts = {};
   for (const [collection, record] of legacy) {
+    expectedCounts[collection] = (expectedCounts[collection] || 0) + 1;
     await db.execute(
       "INSERT INTO store (collection, id, data) VALUES (?, ?, ?)",
       [collection, record.id, JSON.stringify(record)],
     );
   }
   const versions = await db.migrate();
-  assert.deepEqual(versions, ["001", "002", "003"]);
+  assert.deepEqual(versions, ["001", "002", "003", "004"]);
+  for (const [collection, count] of Object.entries(expectedCounts)) {
+    const table = mappings[collection].table;
+    const result = await db.all(`SELECT COUNT(*) AS count FROM ${table}`);
+    assert.equal(
+      Number(result[0].count),
+      count,
+      `${collection} records must all be imported`,
+    );
+  }
+  const legacyTableAfterMigration =
+    db.dialect === "postgres"
+      ? await db.all("SELECT to_regclass('store') AS name")
+      : await db.all(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'store'",
+        );
+  assert.equal(
+    db.dialect === "postgres"
+      ? Boolean(legacyTableAfterMigration[0]?.name)
+      : legacyTableAfterMigration.length > 0,
+    false,
+  );
   const importedCounts = await db.all(
     "SELECT 'students' AS entity, COUNT(*) AS count FROM students UNION ALL SELECT 'attendance', COUNT(*) FROM attendance UNION ALL SELECT 'invoices', COUNT(*) FROM invoices UNION ALL SELECT 'assessment_results', COUNT(*) FROM assessment_results",
   );
   assert.deepEqual(importedCounts.map(({ count }) => Number(count)), [1, 1, 1, 1]);
   assert.equal((await db.readAll("students"))[0].admissionNumber, "ADM-1");
+  assert.deepEqual(
+    (await db.findById("events", "event-1")).customContext,
+    { source: "legacy-event" },
+  );
+  const importedClass = (await db.readAll("classes"))[0];
+  assert.deepEqual(importedClass.teacherIds, ["teacher-1"]);
+  assert.deepEqual(importedClass.subjectIds, ["subject-1"]);
+  assert.equal((await db.findById("users", "admin-1")).passwordHash, "bcrypt-hash-only");
   assert.equal((await db.readAll("exams"))[0].examName, "Quiz 1");
   assert.equal(typeof (await db.readAll("exams"))[0].score, "number");
   assert.equal((await db.readAll("attendance"))[0].sessionKey, "daily");
@@ -161,7 +204,7 @@ async function run() {
   assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM teacher_assignments"))[0].count), 1);
   assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM class_subjects"))[0].count), 1);
   assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM chat_members"))[0].count), 1);
-  assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM schema_migrations"))[0].count), 3);
+  assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM schema_migrations"))[0].count), 4);
   assert.equal((await db.findChatByInviteCode("school-1", "chat-code")).id, "chat-1");
   assert.equal((await db.readByChatId("chat-1")).length, 1);
   const financeStamp = new Date().toISOString();

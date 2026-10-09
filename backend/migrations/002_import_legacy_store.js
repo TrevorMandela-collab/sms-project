@@ -401,6 +401,17 @@ function mapRecord(collection, record, dialect, fallbackTimestamp = new Date().t
 }
 
 async function up({ all, execute, transaction, dialect }) {
+  const legacyStoreExists =
+    dialect === "postgres"
+      ? Boolean((await all("SELECT to_regclass('store') AS name"))[0]?.name)
+      : (await all(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'store'",
+        )).length > 0;
+  if (!legacyStoreExists) {
+    console.log("[db] No legacy store found; skipping data conversion.");
+    return;
+  }
+
   const source = await all("SELECT collection, id, data FROM store ORDER BY collection, id");
   const importedAt = new Date().toISOString();
   const unsupported = [...new Set(source.map((row) => row.collection).filter((name) => !mappings[name]))];

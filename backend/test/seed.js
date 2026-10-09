@@ -54,6 +54,10 @@ try {
     .get().password_hash;
   assert.notEqual(passwordHash, password);
   assert.match(passwordHash, /^\$2[aby]\$/);
+  const copies = database
+    .prepare("SELECT copies_total, copies_available FROM library_books WHERE id = ?")
+    .get("demo-book-mathematics");
+  assert.deepEqual(copies, { copies_total: 12, copies_available: 11 });
   database.close();
   console.log("Relational development seed tests passed");
 } finally {

@@ -9,7 +9,7 @@
     "dev": "node --watch server.js",
     "seed": "node utils/seed.js",
     "db:migrate": "node utils/migrate.js",
-    "test": "node test/database.js && node test/smoke.js",
+    "test": "node test/database.js && node test/fresh-migrations.js && node test/smoke.js",
     "test:postgres": "node test/database.js"
   },
   "dependencies": {
