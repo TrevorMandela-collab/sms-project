@@ -227,6 +227,7 @@ async function run() {
   assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM schema_migrations"))[0].count), 5);
   assert.equal((await db.findChatByInviteCode("school-1", "chat-code")).id, "chat-1");
   assert.equal((await db.readByChatId("chat-1")).length, 1);
+  console.log("[database] migration, relational reads, and constraints passed");
   const financeStamp = new Date().toISOString();
   const invoice = {
     id: "invoice-with-items",
@@ -664,6 +665,7 @@ async function run() {
     /FOREIGN KEY|foreign key/i,
   );
 
+  console.log("[database] domain persistence and concurrent operations passed");
   let insertedStudents = 0;
   for (const batchSize of [100, 900, 9000]) {
     const start = insertedStudents;
@@ -688,6 +690,7 @@ async function run() {
     assert.equal(page.meta.total, insertedStudents + 1);
     assert.ok(Date.now() - queryStart < 5000, "indexed student pagination should remain responsive");
   }
+  console.log("[database] indexed pagination performance checks passed");
   await db.transaction(async () => {
     await db.insert("events", eventRecord("committed"));
     await db.insert("events", eventRecord("also-committed"));
