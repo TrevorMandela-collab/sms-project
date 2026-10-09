@@ -511,7 +511,13 @@ async function run() {
       },
     },
   );
-  assert.equal(failedMigration.status, 0, failedMigration.stderr || failedMigration.stdout);
+  assert.equal(
+    failedMigration.status,
+    0,
+    failedMigration.stderr ||
+      failedMigration.stdout ||
+      `migration failure child exited by ${failedMigration.signal || "unknown signal"}: ${failedMigration.error?.message || "no process output"}`,
+  );
   assert.match(
     `${failedMigration.stdout}${failedMigration.stderr}`,
     /plaintext password fields cannot be imported/,
