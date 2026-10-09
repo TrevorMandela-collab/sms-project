@@ -85,13 +85,14 @@ app.use((err, req, res, next) => {
 // Use an explicit http server (rather than app.listen directly) so the
 // WebSocket server can share the same port.
 const server = http.createServer(app);
-initRealtime(server);
+const closeRealtime = initRealtime(server);
 
 let shuttingDown = false;
 function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[server] ${signal} received; closing HTTP and database connections.`);
+  closeRealtime();
   server.close(async (error) => {
     if (error) {
       console.error("[server] HTTP shutdown failed:", error.code || error.name);

@@ -103,6 +103,12 @@ function initRealtime(server) {
   }, 30000);
 
   wss.on('close', () => clearInterval(interval));
+
+  return () => {
+    clearInterval(interval);
+    for (const ws of wss.clients) ws.terminate();
+    wss.close();
+  };
 }
 
 /**

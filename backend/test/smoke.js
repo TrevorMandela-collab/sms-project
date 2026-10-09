@@ -12,6 +12,44 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function waitForExit(child, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resolve();
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      child.removeListener("exit", onExit);
+      child.removeListener("error", onError);
+      reject(new Error("Smoke-test server did not exit before the timeout"));
+    }, timeoutMs);
+    const cleanup = () => clearTimeout(timer);
+    const onExit = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error) => {
+      cleanup();
+      reject(error);
+    };
+    child.once("exit", onExit);
+    child.once("error", onError);
+  });
+}
+
+async function stopServer(child) {
+  const exited = waitForExit(child, 5000);
+  child.kill();
+  try {
+    await exited;
+  } catch (error) {
+    child.kill("SIGKILL");
+    await waitForExit(child, 1000).catch(() => {});
+    throw error;
+  }
+}
+
 async function request(endpoint, options = {}) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
@@ -902,10 +940,12 @@ async function run() {
 
     console.log("API smoke tests passed");
   } finally {
-    server.kill();
-    await wait(100);
-    fs.rmSync(databasePath, { force: true });
-    if (output && process.env.DEBUG_SMOKE) console.log(output);
+    try {
+      await stopServer(server);
+    } finally {
+      fs.rmSync(databasePath, { force: true });
+      if (output && process.env.DEBUG_SMOKE) console.log(output);
+    }
   }
 }
 
