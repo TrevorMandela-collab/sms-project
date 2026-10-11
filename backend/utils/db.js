@@ -636,9 +636,11 @@ async function count(collection) {
   if (!mapping) {
     throw new TypeError(`No relational mapping exists for ${collection}.`);
   }
+  const activeClause = activeRecordClause(collection);
+  const whereSql = activeClause ? ` WHERE 1 = 1${activeClause}` : "";
   const result = usePostgres
-    ? await queryPostgres(`SELECT COUNT(*) AS total FROM ${mapping.table}`)
-    : await querySqlite("get", `SELECT COUNT(*) AS total FROM ${mapping.table}`);
+    ? await queryPostgres(`SELECT COUNT(*) AS total FROM ${mapping.table}${whereSql}`)
+    : await querySqlite("get", `SELECT COUNT(*) AS total FROM ${mapping.table}${whereSql}`);
   return Number(usePostgres ? result.rows[0].total : result.total);
 }
 

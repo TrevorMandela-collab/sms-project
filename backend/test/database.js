@@ -156,6 +156,7 @@ async function run() {
       `${collection} records must all be imported`,
     );
   }
+
   const legacyTableAfterMigration =
     db.dialect === "postgres"
       ? await db.all("SELECT to_regclass('store') AS name")
@@ -186,6 +187,26 @@ async function run() {
   assert.equal((await db.readAll("attendance"))[0].sessionKey, "daily");
   assert.equal((await db.readAll("library-loans"))[0].itemId, "book-1");
   assert.equal(await db.count("students"), 1);
+
+  const countTestStudentId = "student-count-check";
+  await db.insert("students", {
+    id: countTestStudentId,
+    schoolId: "school-1",
+    admissionNumber: "ADM-COUNT",
+    name: "Count Check Student",
+    classId: "class-1",
+    class: "Grade 1",
+    dateOfBirth: "2019-01-01",
+    gender: "female",
+    admissionDate: "2024-01-01",
+    status: "active",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  assert.equal(await db.count("students"), 2);
+  await db.remove("students", countTestStudentId);
+  assert.equal(await db.count("students"), 1);
+
   assert.equal(
     (await db.findByIds("students", ["student-1"], "school-1")).length,
     1,
