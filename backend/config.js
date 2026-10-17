@@ -32,17 +32,29 @@ if (isProduction) {
       throw new Error("Production FRONTEND_URL origins must use HTTPS.");
     }
   }
-  if (process.env.EMAIL_PROVIDER !== "smtp") {
-    throw new Error("EMAIL_PROVIDER=smtp must be configured in production.");
-  }
-  for (const variable of ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_FROM"]) {
-    if (!process.env[variable]) {
-      throw new Error(`${variable} must be set for production email delivery.`);
+  if (process.env.EMAIL_PROVIDER === "disabled") {
+    // Explicit testing/deployment mode. No email provider is configured, so
+    // email-dependent features (password reset) answer with an "unavailable"
+    // error instead of pretending to send. Any value other than "smtp" or
+    // "disabled" is still rejected.
+    console.warn(
+      "[config] EMAIL_PROVIDER=disabled: password-reset email is unavailable until SMTP is configured.",
+    );
+  } else {
+    if (process.env.EMAIL_PROVIDER !== "smtp") {
+      throw new Error(
+        'EMAIL_PROVIDER must be "smtp" (with SMTP settings) or explicitly "disabled" in production.',
+      );
     }
-  }
-  const smtpPort = Number(process.env.SMTP_PORT || 587);
-  if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
-    throw new Error("SMTP_PORT must be an integer between 1 and 65535.");
+    for (const variable of ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_FROM"]) {
+      if (!process.env[variable]) {
+        throw new Error(`${variable} must be set for production email delivery.`);
+      }
+    }
+    const smtpPort = Number(process.env.SMTP_PORT || 587);
+    if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
+      throw new Error("SMTP_PORT must be an integer between 1 and 65535.");
+    }
   }
 }
 

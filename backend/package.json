@@ -11,7 +11,7 @@
     "seed": "node utils/seed.js",
     "db:migrate": "node utils/migrate.js",
     "provision:super-admin": "node scripts/provision-super-admin.js",
-    "test": "node test/database.js && node test/fresh-migrations.js && node test/migration-failure.js && node test/seed.js && node test/smoke.js && node test/qa-routes.js && node test/qa-bugs.js && node test/platform-roles.js && node test/platform-audit.js && node test/profile-route.js && node test/invite-claim.js && node test/crud-tenant-isolation.js",
+    "test": "node test/database.js && node test/fresh-migrations.js && node test/migration-failure.js && node test/seed.js && node test/smoke.js && node test/qa-routes.js && node test/qa-bugs.js && node test/platform-roles.js && node test/platform-audit.js && node test/profile-route.js && node test/invite-claim.js && node test/crud-tenant-isolation.js && node test/email-disabled.js",
     "test:postgres": "node test/database.js"
   },
   "dependencies": {

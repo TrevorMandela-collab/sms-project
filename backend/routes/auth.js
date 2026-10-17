@@ -471,6 +471,20 @@ router.post(
   "/forgot-password",
   passwordResetRateLimit,
   safe(async (req, res) => {
+    // Testing/deployment mode: with EMAIL_PROVIDER=disabled no reset email can
+    // be delivered, so refuse before touching the database or creating a token.
+    // This does not depend on the submitted email, so it reveals nothing about
+    // which accounts exist.
+    if (process.env.EMAIL_PROVIDER === "disabled") {
+      return res.status(503).json({
+        success: false,
+        error: {
+          code: "EMAIL_NOT_CONFIGURED",
+          message:
+            "Password reset by email is not available on this server. Contact your school administrator.",
+        },
+      });
+    }
     const { email } = req.body || {};
     const normalized = typeof email === "string" ? email.trim().toLowerCase() : "";
 
