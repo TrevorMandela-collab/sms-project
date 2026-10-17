@@ -113,7 +113,7 @@ function getFilteredClasses() {
 function renderClassesTable() {
   const tbody = document.getElementById('classesTableBody');
   const user = SmsAuth.getUser();
-  const canManage = user && user.role === 'admin';
+  const canManage = user && ['admin', 'school_admin'].includes(user.role);
 
   if (classesLoading) {
     tbody.innerHTML = `<tr><td colspan="4"><div class="loading-state">Loading classes…</div></td></tr>`;
@@ -173,7 +173,7 @@ function getFilteredSubjects() {
 function renderSubjectsTable() {
   const tbody = document.getElementById('subjectsTableBody');
   const user = SmsAuth.getUser();
-  const canManage = user && user.role === 'admin';
+  const canManage = user && ['admin', 'school_admin'].includes(user.role);
 
   if (subjectsLoading) {
     tbody.innerHTML = `<tr><td colspan="4"><div class="loading-state">Loading subjects…</div></td></tr>`;

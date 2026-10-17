@@ -1,0 +1,239 @@
+.sidebar-command-trigger {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  margin: 0 0 18px;
+  padding: 9px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.055);
+  color: #dce8f1;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.sidebar-command-trigger:hover {
+  border-color: rgba(201, 230, 223, 0.45);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-command-trigger > span:first-child {
+  font-size: 1rem;
+}
+
+.sidebar-command-label {
+  flex: 1;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.sidebar-command-trigger kbd {
+  padding: 2px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+  color: #aebdca;
+  font: 0.62rem ui-monospace, "Cascadia Code", monospace;
+}
+
+#sidebarSlot.is-collapsed .sidebar-command-label,
+#sidebarSlot.is-collapsed .sidebar-command-trigger kbd {
+  display: none;
+}
+
+#sidebarSlot.is-collapsed .sidebar-command-trigger {
+  justify-content: center;
+  width: 100%;
+}
+
+.mandela-command-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: start center;
+  padding: min(14vh, 110px) 16px 24px;
+  background: rgba(12, 21, 33, 0.58);
+  backdrop-filter: blur(3px);
+}
+
+.mandela-command-backdrop[hidden] {
+  display: none;
+}
+
+.mandela-command-dialog {
+  width: min(620px, 100%);
+  max-height: min(680px, 78vh);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid #dce4ec;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 26px 80px rgba(8, 18, 31, 0.3);
+  color: #1a2b3e;
+}
+
+.mandela-command-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.mandela-command-heading p {
+  margin: 0 0 6px;
+  color: #72849a;
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+}
+
+.mandela-command-heading h2 {
+  margin: 0;
+  font-family: "Manrope", sans-serif;
+  font-size: 1.12rem;
+  letter-spacing: -0.03em;
+}
+
+.mandela-command-close {
+  min-width: 42px;
+  min-height: 32px;
+  border: 1px solid #dce4ec;
+  border-radius: 6px;
+  background: #f7f9fb;
+  color: #607186;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.mandela-command-label {
+  display: block;
+  margin-bottom: 7px;
+  color: #52657a;
+  font-size: 0.73rem;
+  font-weight: 700;
+}
+
+#mandelaCommandInput {
+  width: 100%;
+  min-height: 48px;
+  padding: 11px 13px;
+  border: 1px solid #cbd7e2;
+  border-radius: 8px;
+  outline: none;
+  color: #17283d;
+  font: inherit;
+}
+
+#mandelaCommandInput:focus-visible {
+  border-color: #567ca8;
+  box-shadow: 0 0 0 3px rgba(86, 124, 168, 0.19);
+}
+
+.mandela-command-help {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 13px;
+  margin: 10px 0 14px;
+  color: #8190a0;
+  font-size: 0.64rem;
+}
+
+.mandela-command-results {
+  display: grid;
+  gap: 5px;
+}
+
+.mandela-command-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: #f7f9fb;
+  color: #26394e;
+  cursor: pointer;
+  text-align: left;
+}
+
+.mandela-command-result strong {
+  overflow: hidden;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mandela-command-result small {
+  flex: 0 0 auto;
+  color: #72849a;
+  font-size: 0.67rem;
+}
+
+.mandela-command-result:hover,
+.mandela-command-result.is-active {
+  border-color: #d7e1eb;
+  background: #edf3f8;
+}
+
+.mandela-command-result:focus-visible,
+.mandela-command-close:focus-visible {
+  outline: 3px solid rgba(86, 124, 168, 0.35);
+  outline-offset: 2px;
+}
+
+.mandela-command-empty,
+.mandela-command-error {
+  margin: 0;
+  padding: 18px 10px;
+  color: #718095;
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.mandela-command-error {
+  color: #a2443a;
+}
+
+body.mandela-command-open {
+  overflow: hidden;
+}
+
+@media (max-width: 520px) {
+  .mandela-command-backdrop {
+    padding: 5vh 10px 12px;
+  }
+
+  .mandela-command-dialog {
+    max-height: 88vh;
+    padding: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mandela-command-backdrop,
+  .mandela-command-result {
+    scroll-behavior: auto;
+  }
+}
+
+@media (max-width: 860px) {
+  .sidebar-command-trigger {
+    min-height: 44px;
+  }
+
+  .mandela-command-close,
+  .mandela-command-result {
+    min-height: 44px;
+  }
+
+  .mandela-command-close {
+    min-width: 44px;
+  }
+}

@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Account settings | Mandela SMS</title>
+    <link rel="stylesheet" href="../shared/theme.css" />
+    <link rel="stylesheet" href="../dashboard/style.css" />
+    <link rel="stylesheet" href="style.css" />
+    <script defer src="../shared/auth-client.js"></script>
+    <script defer src="../shared/auth-guard.js"></script>
+    <script defer src="../shared/sidebar.js"></script>
+    <script defer src="script.js"></script>
+  </head>
+  <body>
+    <div class="dashboard-shell">
+      <aside class="command-sidebar" id="sidebarSlot" aria-label="Primary navigation"></aside>
+      <main class="dashboard-main">
+        <header class="topbar">
+          <button class="mobile-menu" id="mobileMenu" type="button" aria-label="Open navigation">☰</button>
+          <div class="breadcrumb"><span>Mandela SMS</span><b>/</b><strong>Account settings</strong></div>
+        </header>
+        <section class="workspace settings-workspace" aria-labelledby="settingsTitle">
+          <div class="settings-intro">
+            <p class="settings-kicker">Your account</p>
+            <h1 id="settingsTitle">Account settings</h1>
+            <p>Update your profile, school details, or sign-in password.</p>
+          </div>
+          <p class="settings-feedback" id="settingsError" role="alert" hidden></p>
+          <p class="settings-feedback settings-feedback--success" id="settingsSuccess" role="status" aria-live="polite" hidden></p>
+
+          <section class="settings-panel" aria-labelledby="profileTitle">
+            <div class="settings-heading">
+              <div>
+                <p class="settings-kicker">Personal details</p>
+                <h2 id="profileTitle">Profile</h2>
+              </div>
+              <span class="settings-role" id="accountRole"></span>
+            </div>
+            <form id="profileForm" class="settings-form">
+              <div class="settings-field">
+                <label for="profileName">Full name</label>
+                <input id="profileName" name="name" maxlength="120" autocomplete="name" required />
+              </div>
+              <div class="settings-field">
+                <label for="profileEmail">Email address</label>
+                <input id="profileEmail" name="email" type="email" maxlength="254" autocomplete="email" required />
+              </div>
+              <div class="settings-actions">
+                <button class="settings-button settings-button--primary" type="submit">Save profile</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="settings-panel" id="schoolSettingsPanel" aria-labelledby="schoolSettingsTitle" hidden>
+            <div class="settings-heading">
+              <div>
+                <p class="settings-kicker">School profile</p>
+                <h2 id="schoolSettingsTitle">School details and branding</h2>
+              </div>
+            </div>
+            <form id="schoolSettingsForm" class="settings-form">
+              <div class="settings-field">
+                <label for="schoolName">School name</label>
+                <input id="schoolName" name="name" maxlength="160" required />
+              </div>
+              <div class="settings-field">
+                <label for="schoolType">School type</label>
+                <input id="schoolType" name="schoolType" maxlength="80" />
+              </div>
+              <div class="settings-field">
+                <label for="schoolEmail">Contact email</label>
+                <input id="schoolEmail" name="email" type="email" maxlength="254" />
+              </div>
+              <div class="settings-field">
+                <label for="schoolPhone">Contact phone</label>
+                <input id="schoolPhone" name="phone" maxlength="40" />
+              </div>
+              <div class="settings-field">
+                <label for="schoolAddress">Address</label>
+                <input id="schoolAddress" name="address" maxlength="240" />
+              </div>
+              <div class="settings-field">
+                <label for="academicYear">Academic year</label>
+                <input id="academicYear" name="academicYear" maxlength="40" />
+              </div>
+              <div class="settings-field">
+                <label for="accentColor">Brand accent</label>
+                <input id="accentColor" name="accentColor" type="color" />
+              </div>
+              <div class="settings-actions">
+                <button class="settings-button settings-button--primary" type="submit">Save school settings</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="settings-panel" aria-labelledby="passwordTitle">
+            <div class="settings-heading">
+              <div>
+                <p class="settings-kicker">Sign-in security</p>
+                <h2 id="passwordTitle">Change password</h2>
+              </div>
+            </div>
+            <form id="passwordForm" class="settings-form settings-form--password">
+              <div class="settings-field">
+                <label for="currentPassword">Current password</label>
+                <input id="currentPassword" name="currentPassword" type="password" autocomplete="current-password" required />
+              </div>
+              <div class="settings-field">
+                <label for="newPassword">New password</label>
+                <input id="newPassword" name="newPassword" type="password" minlength="12" autocomplete="new-password" required />
+                <small>Use at least 12 characters. You will need to sign in again after changing it.</small>
+              </div>
+              <div class="settings-actions">
+                <button class="settings-button settings-button--quiet" type="submit">Change password</button>
+              </div>
+            </form>
+          </section>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

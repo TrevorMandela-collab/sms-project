@@ -8,7 +8,7 @@
 ========================================================= */
 
 const user = SmsAuth.getUser();
-const isAdmin = user && user.role === "admin";
+const isAdmin = user && ["admin", "school_admin"].includes(user.role);
 
 let chatsState = [];
 let usersState = [];
@@ -22,8 +22,6 @@ let replyingToId = null;
 let editingMessageId = null;
 let socket = null;
 let socketReconnectDelay = 1000;
-
-const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
 if (isAdmin) {
   document.getElementById("createChatBtn").style.display = "";
@@ -148,103 +146,9 @@ function renderMessages(messages) {
   const container = document.getElementById("chatMessages");
   const wasAtBottom =
     container.scrollTop + container.clientHeight >= container.scrollHeight - 40;
-
-  if (!messages.length) {
-    container.innerHTML = `<div class="empty-state">No messages yet — say hi!</div>`;
-    return;
-  }
-
-  const byId = new Map(messages.map((m) => [m.id, m]));
-
-  container.innerHTML = messages
-    .map((m) => {
-      const isOwn = m.senderId === user.id;
-      const canModify = isOwn;
-
-      if (m.deleted) {
-        return `
-        <div class="chat-message ${isOwn ? "is-own" : ""} is-deleted" data-id="${m.id}">
-          <div class="chat-message-meta">${m.senderName} · ${formatTime(m.createdAt)}</div>
-          <div class="chat-message-bubble chat-message-bubble--deleted"><em>Message deleted</em></div>
-        </div>
-      `;
-      }
-
-      const replyTarget = m.replyToId ? byId.get(m.replyToId) : null;
-      const replyHtml = replyTarget
-        ? `
-      <div class="chat-reply-quote">
-        <span class="chat-reply-quote-name">${replyTarget.deleted ? "Deleted message" : replyTarget.senderName}</span>
-        <span class="chat-reply-quote-text">${replyTarget.deleted ? "" : escapeHtml(truncate(replyTarget.text, 60))}</span>
-      </div>
-    `
-        : m.replyToId
-          ? `<div class="chat-reply-quote"><span class="chat-reply-quote-text">Original message not found</span></div>`
-          : "";
-
-      const reactions = m.reactions || {};
-      const reactionEntries = Object.entries(reactions).filter(
-        ([, ids]) => ids && ids.length,
-      );
-      const reactionsHtml = reactionEntries.length
-        ? `
-      <div class="chat-reactions">
-        ${reactionEntries
-          .map(
-            ([emoji, ids]) => `
-          <button type="button" class="chat-reaction-pill ${ids.includes(user.id) ? "is-mine" : ""}" data-react="${emoji}" data-msg="${m.id}">
-            ${emoji} ${ids.length}
-          </button>
-        `,
-          )
-          .join("")}
-      </div>
-    `
-        : "";
-
-      const actionsHtml = `
-      <div class="chat-message-actions">
-        <button type="button" class="chat-action-btn" data-action="react-toggle" data-msg="${m.id}" title="React">😊</button>
-        <button type="button" class="chat-action-btn" data-action="reply" data-msg="${m.id}" title="Reply">↩</button>
-        ${canModify && isOwn ? `<button type="button" class="chat-action-btn" data-action="edit" data-msg="${m.id}" title="Edit">✎</button>` : ""}
-        ${canModify ? `<button type="button" class="chat-action-btn chat-action-btn--danger" data-action="delete" data-msg="${m.id}" title="Delete">🗑</button>` : ""}
-      </div>
-      <div class="chat-reaction-picker" id="picker-${m.id}" style="display:none;">
-        ${QUICK_REACTIONS.map((e) => `<button type="button" class="chat-reaction-pick" data-react="${e}" data-msg="${m.id}">${e}</button>`).join("")}
-      </div>
-    `;
-
-      return `
-      <div class="chat-message ${isOwn ? "is-own" : ""}" data-id="${m.id}">
-        ${replyHtml}
-        <div class="chat-message-meta">${m.senderName} · ${formatTime(m.createdAt)}${m.edited ? ' · <span class="chat-edited-tag">edited</span>' : ""}</div>
-        <div class="chat-message-bubble">${escapeHtml(m.text)}</div>
-        ${reactionsHtml}
-        ${actionsHtml}
-      </div>
-    `;
-    })
-    .join("");
+  ChatMessageRenderer.renderChatMessages(container, messages, user.id);
 
   if (wasAtBottom) container.scrollTop = container.scrollHeight;
-}
-
-function formatTime(iso) {
-  return new Date(iso).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function truncate(str, len) {
-  if (!str) return "";
-  return str.length > len ? str.slice(0, len) + "…" : str;
-}
-
-function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
 }
 
 /* ---------- Reply / Edit context bar ---------- */

@@ -1,6 +1,6 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-const dashboardData = {};
+const dashboardData = { errors: {} };
 
 const DATA_PATHS = {
   students: "/students",
@@ -10,7 +10,6 @@ const DATA_PATHS = {
   attendance: "/attendance",
   fees: "/fees",
   exams: "/exams",
-  assignments: "/assignments",
   announcements: "/announcements",
   events: "/events",
 };
@@ -41,12 +40,42 @@ async function loadDashboardData() {
   const results = await Promise.allSettled(
     entries.map(([, path]) => SmsAuth.apiFetch(path)),
   );
+  dashboardData.errors = {};
   entries.forEach(([key], index) => {
     const result = results[index];
-    dashboardData[key] = result.status === "fulfilled" && Array.isArray(result.value)
-      ? result.value
-      : [];
+    if (result.status === "fulfilled" && Array.isArray(result.value)) {
+      dashboardData[key] = result.value;
+    } else {
+      dashboardData[key] = [];
+      dashboardData.errors[key] =
+        result.status === "rejected"
+          ? result.reason.message
+          : "The service returned an unexpected response.";
+    }
   });
+
+  const user = SmsAuth.getUser();
+  if (user?.role === "admin" || user?.role === "school_admin") {
+    try {
+      const result = await SmsAuth.apiFetch("/audit-logs?page=1&limit=5");
+      if (!Array.isArray(result.data)) {
+        throw new Error("The audit service returned an unexpected response.");
+      }
+      dashboardData.auditLogs = result.data;
+    } catch (error) {
+      dashboardData.auditLogs = [];
+      dashboardData.errors.auditLogs = error.message;
+    }
+  }
+
+  const failedSources = Object.keys(dashboardData.errors);
+  const warning = $("#dashboardLoadWarning");
+  if (failedSources.length) {
+    warning.textContent = `Some school data could not be loaded (${failedSources.join(", ")}). Affected metrics are marked unavailable.`;
+    warning.hidden = false;
+  } else {
+    warning.hidden = true;
+  }
 }
 
 function showToast(message) {
@@ -70,45 +99,71 @@ function setUserProfile() {
   const user = typeof SmsAuth !== "undefined" ? SmsAuth.getUser() : null;
   const name = user?.name || "Admin";
   const firstName = name.split(/\s+/)[0];
-  const initials = name
-    .split(/\s+/)
-    .map((part) => part[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-  ["#greetingName", "#topName"].forEach((selector) => {
-    const element = $(selector);
-    if (element)
-      element.textContent = selector === "#greetingName" ? firstName : name;
-  });
-  ["#topAvatar"].forEach((selector) => {
-    const element = $(selector);
-    if (element) element.textContent = initials || "AD";
-  });
+  const element = $("#greetingName");
+  if (element) {
+    element.textContent = firstName;
+  }
+  const hour = new Date().getHours();
+  $("#greetingPrefix").textContent =
+    hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 }
 
-function setupSidebar() {
-  const sidebar = $("#sidebarSlot");
-  $("#mobileMenu").addEventListener("click", () =>
-    sidebar.classList.add("is-mobile-open"),
-  );
-  document.addEventListener("click", (event) => {
-    if (
-      window.innerWidth <= 860 &&
-      sidebar.classList.contains("is-mobile-open") &&
-      !sidebar.contains(event.target) &&
-      event.target.id !== "mobileMenu"
-    ) {
-      sidebar.classList.remove("is-mobile-open");
+function notificationStorageKey() {
+  const user = SmsAuth.getUser() || {};
+  return `sms:read-dashboard-alerts:${user.id || "unknown"}:${user.schoolId || "none"}`;
+}
+
+function readDashboardNotifications() {
+  try {
+    const stored = localStorage.getItem(notificationStorageKey());
+    if (!stored) return new Set();
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed) || parsed.some((key) => typeof key !== "string")) {
+      throw new TypeError("Stored notification state is invalid.");
     }
-  });
+    return new Set(parsed);
+  } catch (error) {
+    console.error("[dashboard] notification state could not be read:", error);
+    return new Set();
+  }
+}
+
+function saveDashboardNotifications(readKeys) {
+  try {
+    localStorage.setItem(
+      notificationStorageKey(),
+      JSON.stringify([...readKeys].slice(-100)),
+    );
+    return true;
+  } catch (error) {
+    console.error("[dashboard] notification state could not be saved:", error);
+    return false;
+  }
+}
+
+function updateUnreadNotificationCount() {
+  const unread = $$("#notificationList [data-notification]:not(.is-read)").length;
+  $("#notificationCount").textContent = String(unread);
+}
+
+function markDashboardNotificationRead(notification) {
+  const key = notification.dataset.notificationKey;
+  if (key) {
+    const readKeys = readDashboardNotifications();
+    readKeys.add(key);
+    if (!saveDashboardNotifications(readKeys)) {
+      showToast("Read status could not be saved on this device.");
+    }
+  }
+  notification.classList.add("is-read");
+  updateUnreadNotificationCount();
 }
 
 function setupActions() {
   document.addEventListener("click", (event) => {
     const action = event.target.closest("[data-href], [data-toast], [data-action]");
     const notification = event.target.closest("[data-notification]");
-    if (notification) notification.classList.add("is-read");
+    if (notification) markDashboardNotificationRead(notification);
     if (!action) return;
     if (action.dataset.action === "export-report") {
       exportDashboardReport();
@@ -116,42 +171,62 @@ function setupActions() {
     }
     navigate(action);
   });
-  $$("[data-notification]").forEach((item) =>
-    item.addEventListener("click", () => item.classList.add("is-read")),
-  );
   $("#markRead").addEventListener("click", () => {
-    $$("[data-notification]").forEach((item) => item.classList.add("is-read"));
-    showToast("All notifications marked as read");
+    const notifications = $$("#notificationList [data-notification]");
+    const readKeys = readDashboardNotifications();
+    notifications.forEach((item) => {
+      if (item.dataset.notificationKey) {
+        readKeys.add(item.dataset.notificationKey);
+      }
+      item.classList.add("is-read");
+    });
+    const saved = saveDashboardNotifications(readKeys);
+    updateUnreadNotificationCount();
+    showToast(
+      saved
+        ? "All notifications marked as read"
+        : "Read status could not be saved on this device.",
+    );
   });
 }
 
 function setupMenus() {
   const profileMenu = $("#profileMenu");
-  const sidebarProfileButton = $("#sharedSidebarProfileButton");
-  $("#topProfile").addEventListener("click", (event) => {
-    event.stopPropagation();
-    profileMenu.classList.toggle("is-open");
-    $("#notificationPanel").classList.remove("is-open");
-  });
-  sidebarProfileButton?.addEventListener("click", () =>
-    profileMenu.classList.toggle("is-open"),
-  );
-  $("#topLogout").addEventListener("click", () => {
-    if (typeof SmsAuth !== "undefined") SmsAuth.logout();
-  });
-  document.addEventListener("click", (event) => {
-    if (
-      !profileMenu.contains(event.target) &&
-      event.target.id !== "topProfile" &&
-      event.target.id !== "sharedSidebarProfileButton"
-    )
-      profileMenu.classList.remove("is-open");
-  });
-  $("#notificationButton").addEventListener("click", (event) => {
-    event.stopPropagation();
-    $("#notificationPanel").classList.toggle("is-open");
-    profileMenu.classList.remove("is-open");
-  });
+  const topProfile = $("#topProfile");
+  const topLogout = $("#topLogout");
+  if (topProfile) {
+    topProfile.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (profileMenu) {
+        profileMenu.classList.toggle("is-open");
+      }
+      const panel = $("#notificationPanel");
+      if (panel) panel.classList.remove("is-open");
+    });
+  }
+  if (topLogout && typeof SmsAuth !== "undefined") {
+    topLogout.addEventListener("click", () => SmsAuth.logout());
+  }
+  if (profileMenu) {
+    document.addEventListener("click", (event) => {
+      if (
+        !profileMenu.contains(event.target) &&
+        event.target.id !== "topProfile" &&
+        event.target.id !== "sharedSidebarProfileButton"
+      ) {
+        profileMenu.classList.remove("is-open");
+      }
+    });
+  }
+  const notificationButton = $("#notificationButton");
+  if (notificationButton) {
+    notificationButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const panel = $("#notificationPanel");
+      if (panel) panel.classList.toggle("is-open");
+      if (profileMenu) profileMenu.classList.remove("is-open");
+    });
+  }
 }
 
 function setupSearch() {
@@ -208,7 +283,61 @@ function setupSearch() {
   });
 }
 
+function renderDashboardAudit(error) {
+  const panel = $(".audit-panel");
+  const user = SmsAuth.getUser();
+  const canReadAudit = ["admin", "school_admin"].includes(user?.role);
+  if (!panel) return;
+  panel.hidden = !canReadAudit;
+  if (!canReadAudit) return;
+
+  const list = $("#dashboardAuditList");
+  list.replaceChildren();
+  if (error) {
+    const item = document.createElement("li");
+    const message = document.createElement("p");
+    message.className = "dashboard-empty";
+    message.textContent = "Audit history is unavailable right now.";
+    item.append(message);
+    list.append(item);
+    return;
+  }
+
+  const auditLogs = dashboardData.auditLogs || [];
+  if (!auditLogs.length) {
+    const item = document.createElement("li");
+    const message = document.createElement("p");
+    message.className = "dashboard-empty";
+    message.textContent = "No audit activity has been recorded yet.";
+    item.append(message);
+    list.append(item);
+    return;
+  }
+
+  for (const record of auditLogs) {
+    const item = document.createElement("li");
+    const icon = document.createElement("span");
+    icon.textContent = "≋";
+    const content = document.createElement("p");
+    const title = document.createElement("strong");
+    title.textContent = String(record.action || "Administrative activity")
+      .replace(/_/g, " ")
+      .toLocaleLowerCase();
+    const detail = document.createElement("small");
+    const date = record.timestamp ? new Date(record.timestamp) : null;
+    const dateLabel =
+      date && !Number.isNaN(date.getTime())
+        ? date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+        : "Time not recorded";
+    detail.textContent = `${record.entityType || "Record"} · ${dateLabel}`;
+    content.append(title, detail);
+    item.append(icon, content);
+    list.append(item);
+  }
+}
+
 function renderDashboardData() {
+  const errors = dashboardData.errors || {};
   const students = dashboardData.students;
   const teachers = dashboardData.teachers;
   const attendance = dashboardData.attendance;
@@ -314,10 +443,15 @@ function renderDashboardData() {
   $("#attentionList").innerHTML = attentionItems.length
     ? attentionItems.map((item) => `<button class="attention-item attention-item--${item.type}" data-href="${item.href}"><span class="attention-symbol">${item.icon}</span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></span><b>→</b></button>`).join("")
     : `<p class="dashboard-empty">No follow-up items right now.</p>`;
-  $("#notificationCount").textContent = String(attentionItems.length);
-  $("#notificationList").innerHTML = attentionItems.map((item) =>
-    `<button class="notification-item" data-notification><span class="attention-symbol">${item.icon}</span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></span></button>`,
-  ).join("") || `<p class="dashboard-empty">You're all caught up.</p>`;
+  const readNotifications = readDashboardNotifications();
+  $("#notificationList").innerHTML = attentionItems.map((item) => {
+    const key = encodeURIComponent(
+      JSON.stringify([today, item.type, item.title, item.detail, item.href]),
+    );
+    const isRead = readNotifications.has(key);
+    return `<button class="notification-item${isRead ? " is-read" : ""}" data-notification data-notification-key="${key}" data-href="${item.href}"><span class="attention-symbol">${item.icon}</span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail)}</small></span></button>`;
+  }).join("") || `<p class="dashboard-empty">You're all caught up.</p>`;
+  updateUnreadNotificationCount();
 
   const upcomingEvents = dashboardData.events
     .filter((record) => record.date && String(record.date).slice(0, 10) >= today)
@@ -339,6 +473,47 @@ function renderDashboardData() {
     const time = Number.isNaN(date.getTime()) ? "—" : date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
     return `<div><time>${time}</time><span class="feed-icon feed-icon--${item.color}">${item.icon}</span><p><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail || "")}</small></p><a href="${item.href}" aria-label="Open ${escapeHtml(item.title)}">→</a></div>`;
   }).join("") || `<p class="dashboard-empty">School activity will appear here as records are added.</p>`;
+
+  renderDashboardAudit(errors.auditLogs);
+  if (errors.students) {
+    $("#metricStudents").textContent = "—";
+    $("#metricClasses").textContent = "Student totals unavailable";
+  }
+  if (errors.classes) $("#metricClasses").textContent = "Class totals unavailable";
+  if (errors.attendance) {
+    $("#metricAttendance").textContent = "—";
+    $("#metricAttendanceNote").textContent = "Attendance data unavailable";
+    $("#attendanceSummary").textContent = "—";
+    $("#attendanceSummaryNote").textContent = "Attendance data unavailable";
+    $("#classBreakdown").innerHTML =
+      '<p class="dashboard-empty">Attendance details unavailable.</p>';
+  }
+  if (errors.teachers) $("#metricTeachers").textContent = "—";
+  if (errors.fees) {
+    $("#metricFees").textContent = "—";
+    $("#metricFeesNote").textContent = "Fee data unavailable";
+    $("#financeStats").innerHTML =
+      '<p class="dashboard-empty">Finance totals unavailable.</p>';
+    $("#paymentList").innerHTML =
+      '<p class="dashboard-empty">Recent payments unavailable.</p>';
+  }
+  if (errors.exams) {
+    $("#performanceSummary").textContent = "—";
+    $("#performanceList").innerHTML =
+      '<p class="dashboard-empty">Academic performance data unavailable.</p>';
+  }
+  if (errors.events) {
+    $(".event-list").innerHTML =
+      '<p class="dashboard-empty">Upcoming events are unavailable.</p>';
+  }
+  if (errors.attendance || errors.fees || errors.exams || errors.students) {
+    $("#metricAlerts").textContent = "—";
+    $("#attentionCount").textContent = "Partial";
+    $("#attentionList").innerHTML =
+      '<p class="dashboard-empty">Some alert sources are unavailable; displayed items may be incomplete.</p>' +
+      $("#attentionList").innerHTML;
+    $("#notificationCount").textContent = "—";
+  }
 
   const attendanceByDate = new Map();
   attendance.forEach((record) => {
@@ -394,7 +569,7 @@ function applySchoolProfile(school) {
 
 async function setupSchoolProfile() {
   const user = SmsAuth.getUser();
-  if (user?.role !== "admin") return;
+  if (!["admin", "school_admin"].includes(user?.role)) return;
 
   try {
     const response = await SmsAuth.apiFetch("/schools/me");
@@ -500,7 +675,7 @@ function renderCharts() {
   const attendanceSeries = dashboardData.attendanceSeries || [];
   const subjectAverages = (dashboardData.subjectAverages || []).slice(0, 4);
   const financeSeries = dashboardData.financeSeries || [];
-  new Chart($("#attendanceTrendChart"), {
+  const attendanceChart = new Chart($("#attendanceTrendChart"), {
     type: "line",
     data: {
       labels: attendanceSeries.length ? attendanceSeries.map((item) => item.label) : ["No records"],
@@ -539,7 +714,7 @@ function renderCharts() {
       },
     },
   });
-  new Chart($("#performanceChart"), {
+  const performanceChart = new Chart($("#performanceChart"), {
     type: "bar",
     data: {
       labels: subjectAverages.length ? subjectAverages.map((item) => item.subject) : ["No results"],
@@ -574,7 +749,7 @@ function renderCharts() {
       },
     },
   });
-  new Chart($("#financeChart"), {
+  const financeChart = new Chart($("#financeChart"), {
     type: "line",
     data: {
       labels: financeSeries.length ? financeSeries.map(([month]) => new Date(`${month}-15T12:00:00`).toLocaleDateString("en-GB", { month: "short" })) : ["No payments"],
@@ -611,11 +786,28 @@ function renderCharts() {
       },
     },
   });
+
+  const charts = [attendanceChart, performanceChart, financeChart];
+  let resizeTimeout = 0;
+  window.addEventListener(
+    "resize",
+    () => {
+      window.clearTimeout(resizeTimeout);
+      resizeTimeout = window.setTimeout(() => {
+        charts.forEach((chart) => chart.resize());
+        resizeTimeout = 0;
+      }, 250);
+    },
+    { passive: true },
+  );
 }
 
 async function init() {
+  if (SmsAuth.getUser()?.role === "super_admin") {
+    window.location.replace(SmsAuth.homeUrlForRole("super_admin"));
+    return;
+  }
   setUserProfile();
-  setupSidebar();
   setupActions();
   setupMenus();
   setupSearch();

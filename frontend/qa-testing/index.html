@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QA Lab | Mandela SMS</title>
+    <link rel="stylesheet" href="../shared/theme.css" />
+    <link rel="stylesheet" href="../shared/portal.css" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <main class="app-main qa-main">
+        <div class="qa-userbar"><div id="userBadgeSlot"></div></div>
+        <section class="qa-panel" id="qaChecking">
+          <p class="qa-muted">Checking access...</p>
+        </section>
+        <section class="qa-panel" id="qaError" hidden>
+          <h1>Could not verify access</h1>
+          <p class="qa-muted" id="qaErrorText"></p>
+        </section>
+        <section class="qa-panel" id="qaDenied" role="alert" hidden>
+          <h1>Access restricted</h1>
+          <p>The QA Lab and its environments are limited to administrators explicitly authorized for QA access.</p>
+        </section>
+
+        <div id="qaContent" hidden>
+          <header class="qa-heading qa-lab-heading">
+            <div>
+              <p class="qa-eyebrow">QUALITY ASSURANCE</p>
+              <h1>QA Lab</h1>
+              <p>Manually test Mandela SMS, record results, and track bugs.</p>
+            </div>
+          </header>
+
+          <nav class="qa-local-nav" aria-label="QA Lab sections">
+            <a href="#qaWorkspace">Application workspace</a>
+            <a href="#qaSuites">Test cases</a>
+            <a href="#qaResults">Results</a>
+            <a href="#qaBugs">Bug reports &amp; history</a>
+          </nav>
+
+          <section class="qa-panel qa-workspace" id="qaWorkspace" aria-labelledby="qaWorkspaceTitle">
+            <div class="qa-workspace-heading">
+              <div>
+                <h2 id="qaWorkspaceTitle">Application workspace</h2>
+                <p class="qa-muted">Interact with a real Mandela SMS page. Loading a page does not mark a test as passed.</p>
+              </div>
+              <div class="qa-workspace-controls">
+                <label class="qa-case-label" for="qaModuleSelect">Application module</label>
+                <select class="qa-input" id="qaModuleSelect"></select>
+                <button class="qa-nav-btn" id="qaRefreshModule" type="button">Refresh page</button>
+                <a class="qa-nav-btn qa-open-module" id="qaOpenModule" target="_blank" rel="noopener noreferrer">Open in new tab</a>
+              </div>
+            </div>
+            <p class="qa-workspace-status" id="qaWorkspaceStatus" role="status" aria-live="polite">Choose an application module to begin.</p>
+            <div class="qa-workspace-auth" id="qaWorkspaceAuth" role="alert" hidden>
+              <p>This application page needs you to sign in. Sign in in a new tab, then refresh this workspace.</p>
+              <a href="../login/index.html" target="_blank" rel="noopener noreferrer">Open sign-in</a>
+            </div>
+            <iframe
+              class="qa-app-frame"
+              id="qaAppFrame"
+              title="Mandela SMS application workspace"
+              loading="lazy"
+              referrerpolicy="strict-origin-when-cross-origin"
+              hidden
+            ></iframe>
+          </section>
+
+          <section class="qa-panel" id="qaResults" aria-labelledby="qaSummaryTitle">
+            <h2 id="qaSummaryTitle">Testing dashboard</h2>
+            <div class="qa-stats">
+              <article class="qa-stat">
+                <span id="statTotal">0</span><small>Total tests</small>
+              </article>
+              <article class="qa-stat qa-stat--pass">
+                <span id="statPassed">0</span><small>Passed</small>
+              </article>
+              <article class="qa-stat qa-stat--fail">
+                <span id="statFailed">0</span><small>Failed</small>
+              </article>
+              <article class="qa-stat qa-stat--blocked">
+                <span id="statBlocked">0</span><small>Blocked</small>
+              </article>
+              <article class="qa-stat">
+                <span id="statNotRun">0</span><small>Not run</small>
+              </article>
+            </div>
+            <div class="qa-progress-label">
+              <strong>Progress</strong>
+              <span id="progressText">0%</span>
+            </div>
+            <div
+              class="qa-progress"
+              role="progressbar"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="0"
+              id="progressBar"
+            >
+              <div class="qa-progress-fill" id="progressFill"></div>
+            </div>
+          </section>
+
+          <section class="qa-panel" id="qaSuites" aria-labelledby="qaSuitesTitle">
+            <h2 id="qaSuitesTitle">Test suites</h2>
+            <div id="qaSuitesList"></div>
+            <p class="qa-muted">Test cases are loading...</p>
+          </section>
+
+          <section class="qa-panel" id="qaBugs" aria-labelledby="qaBugsTitle">
+            <h2 id="qaBugsTitle">Bug reports</h2>
+            <form id="qaBugForm" class="qa-bug-form">
+              <div class="qa-bug-grid">
+                <div class="qa-field">
+                  <label class="qa-case-label" for="qaBugTitle">Title</label>
+                  <input
+                    class="qa-input"
+                    id="qaBugTitle"
+                    name="title"
+                    maxlength="200"
+                    required
+                  />
+                </div>
+                <div class="qa-field">
+                  <label class="qa-case-label" for="qaBugSeverity"
+                    >Severity</label
+                  >
+                  <select
+                    class="qa-input"
+                    id="qaBugSeverity"
+                    name="severity"
+                    required
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </div>
+                <div class="qa-field">
+                  <label class="qa-case-label" for="qaBugLinkedTest"
+                    >Linked test (optional)</label
+                  >
+                  <select
+                    class="qa-input"
+                    id="qaBugLinkedTest"
+                    name="linkedTestId"
+                  >
+                    <option value="">No linked test</option>
+                  </select>
+                </div>
+                <div class="qa-field">
+                  <label class="qa-case-label" for="qaBugSteps"
+                    >Steps to reproduce</label
+                  >
+                  <textarea
+                    class="qa-textarea"
+                    id="qaBugSteps"
+                    name="steps"
+                    rows="3"
+                    maxlength="2000"
+                  ></textarea>
+                </div>
+                <div class="qa-field">
+                  <label class="qa-case-label" for="qaBugExpected"
+                    >Expected result</label
+                  >
+                  <textarea
+                    class="qa-textarea"
+                    id="qaBugExpected"
+                    name="expected"
+                    rows="3"
+                    maxlength="2000"
+                  ></textarea>
+                </div>
+                <div class="qa-field">
+                  <label class="qa-case-label" for="qaBugActual"
+                    >Actual result</label
+                  >
+                  <textarea
+                    class="qa-textarea"
+                    id="qaBugActual"
+                    name="actual"
+                    rows="3"
+                    maxlength="2000"
+                  ></textarea>
+                </div>
+                <div class="qa-field">
+                  <label class="qa-case-label" for="qaBugEvidence"
+                    >Evidence (text or links; no uploads)</label
+                  >
+                  <textarea
+                    class="qa-textarea"
+                    id="qaBugEvidence"
+                    name="evidence"
+                    rows="3"
+                    maxlength="2000"
+                  ></textarea>
+                </div>
+              </div>
+              <div class="qa-bug-actions">
+                <button class="qa-nav-btn" type="submit">Report bug</button>
+                <p
+                  class="qa-muted qa-bug-save-state"
+                  id="qaBugSaveState"
+                  aria-live="polite"
+                ></p>
+              </div>
+            </form>
+            <div id="qaBugList" class="qa-bug-list" aria-live="polite">
+              <p class="qa-muted">Loading bug reports...</p>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+    <script src="../shared/auth-client.js"></script>
+    <script src="../shared/auth-guard.js"></script>
+    <script src="test-cases.js"></script>
+    <script src="script.js"></script>
+  </body>
+</html>

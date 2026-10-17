@@ -2,7 +2,12 @@ const express = require("express");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const db = require("../utils/db");
-const { signToken, requireAuth, requireRole } = require("../middleware/auth");
+const {
+  signToken,
+  requireAuth,
+  requireRole,
+} = require("../middleware/auth");
+const { REGISTERABLE_ROLES, isSchoolAdmin } = require("../utils/roles");
 const {
   authRateLimit,
   loginRateLimit,
@@ -10,12 +15,13 @@ const {
 } = require("../middleware/rateLimiter");
 const { sendPasswordResetEmail } = require("../utils/email");
 const { recordAuditEvent } = require("../utils/auditLog");
+const { isSchoolSuspended } = require("../utils/schoolStatus");
 
 const router = express.Router();
 const COLLECTION = "users";
 
 // Valid roles for this system
-const ROLES = ["admin", "teacher", "parent", "student"];
+const ROLES = REGISTERABLE_ROLES;
 const PASSWORD_MIN_LENGTH = 12;
 
 function passwordIsValid(password) {
@@ -91,38 +97,23 @@ router.post(
       });
     }
 
-    const isFirstUser = (await db.count(COLLECTION)) === 0;
     let adminSchoolId = null;
-
-    if (isFirstUser && role !== "admin") {
-      return res
-        .status(400)
-        .json({ error: "The first account must be an admin account." });
-    }
-    if (isFirstUser && !schoolName?.trim()) {
-      return res.status(400).json({
-        error: "schoolName is required when creating the first admin account.",
-      });
-    }
-
-    // After the first (bootstrap) admin account exists, lock registration
-    // down to admins only.
-    if (!isFirstUser) {
-      const header = req.headers.authorization || "";
-      const token = header.startsWith("Bearer ") ? header.slice(7) : null;
-      if (!token) {
-        return res.status(403).json({
-          error:
-            "Only an admin can create new accounts. Log in as admin first.",
-        });
-      }
+    let isAuthorizedAdmin = false;
+    const header = req.headers.authorization || "";
+    const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+    if (token) {
+      let payload;
       try {
         const jwt = require("jsonwebtoken");
         const { JWT_SECRET } = require("../middleware/auth");
-        const payload = jwt.verify(token, JWT_SECRET);
+        payload = jwt.verify(token, JWT_SECRET);
+      } catch {
+        payload = null;
+      }
+      if (payload) {
         const creator = await db.findById(COLLECTION, payload.id);
         if (
-          creator?.role !== "admin" ||
+          !isSchoolAdmin(creator) ||
           creator.status !== "active" ||
           !creator.schoolId ||
           (payload.tokenVersion || 0) !== (creator.tokenVersion || 0)
@@ -132,11 +123,98 @@ router.post(
             .json({ error: "Only an admin can create new accounts." });
         }
         adminSchoolId = creator.schoolId;
-      } catch {
-        return res
-          .status(403)
-          .json({ error: "Only an admin can create new accounts." });
+        if (await isSchoolSuspended(creator)) {
+          return res.status(403).json({
+            error: "This school is suspended. Contact your platform administrator.",
+            code: "SCHOOL_SUSPENDED",
+          });
+        }
+        isAuthorizedAdmin = true;
       }
+    }
+
+    const createAccount = async (isFirstUser, schoolIdForAdmin) => {
+      if (await db.findUserByEmail(email, { includeDeleted: true })) {
+        return {
+          status: 409,
+          body: { error: "An account with that email already exists." },
+        };
+      }
+
+      const passwordHash = await bcrypt.hash(password, 12);
+      const schoolId = isFirstUser ? crypto.randomUUID() : schoolIdForAdmin;
+      const newUser = {
+        id: crypto.randomUUID(),
+        name,
+        email,
+        passwordHash,
+        role,
+        schoolId,
+        childIds: role === "parent" ? childIds || [] : [],
+        teacherId: role === "teacher" ? teacherId || null : null,
+        status: "active",
+        suspendedUntil: null,
+        tokenVersion: 0,
+        createdAt: new Date().toISOString(),
+      };
+
+      const sessionToken = signToken(newUser);
+      const { passwordHash: _, ...safeUser } = newUser;
+      await db.transaction(async () => {
+        if (isFirstUser) {
+          await db.insert("schools", {
+            id: schoolId,
+            name: schoolName.trim(),
+            createdBy: null,
+            createdAt: new Date().toISOString(),
+          });
+        }
+        await db.insert(COLLECTION, newUser);
+        if (isFirstUser) {
+          await db.update("schools", schoolId, { createdBy: newUser.id });
+        }
+        await recordAuditEvent(req, {
+          action: "USER_CREATED",
+          entityType: "user",
+          entityId: newUser.id,
+          metadata: { role: newUser.role },
+          actor: safeUser,
+        });
+      });
+      return {
+        status: 201,
+        body: { user: safeUser, token: sessionToken, isFirstAdmin: isFirstUser },
+      };
+    };
+
+    if (!isAuthorizedAdmin) {
+      const bootstrap = await db.withBootstrapLock(async () => {
+        if ((await db.count(COLLECTION)) !== 0) {
+          return {
+            status: 403,
+            body: {
+              error:
+                "Only an admin can create new accounts. Log in as admin first.",
+            },
+          };
+        }
+        if (role !== "admin") {
+          return {
+            status: 400,
+            body: { error: "The first account must be an admin account." },
+          };
+        }
+        if (!schoolName?.trim()) {
+          return {
+            status: 400,
+            body: {
+              error: "schoolName is required when creating the first admin account.",
+            },
+          };
+        }
+        return createAccount(true, null);
+      });
+      return res.status(bootstrap.status).json(bootstrap.body);
     }
 
     if (await db.findUserByEmail(email, { includeDeleted: true })) {
@@ -150,9 +228,7 @@ router.post(
         return res.status(400).json({ error: "childIds must be an array." });
       }
       const students = await db.findByIds("students", childIds, adminSchoolId);
-      const linkedStudents = new Set(
-        students.map((student) => student.id),
-      );
+      const linkedStudents = new Set(students.map((student) => student.id));
       if (!childIds.every((id) => linkedStudents.has(id))) {
         return res.status(404).json({
           error: "One or more selected children were not found in your school.",
@@ -168,47 +244,11 @@ router.post(
       }
     }
 
-    const passwordHash = await bcrypt.hash(password, 12);
-    const schoolId = isFirstUser ? crypto.randomUUID() : adminSchoolId;
-    const newUser = {
-      id: crypto.randomUUID(),
-      name,
-      email,
-      passwordHash,
-      role,
-      schoolId,
-      childIds: role === "parent" ? childIds || [] : [],
-      teacherId: role === "teacher" ? teacherId || null : null,
-      status: "active",
-      suspendedUntil: null,
-      tokenVersion: 0,
-      createdAt: new Date().toISOString(),
-    };
-
-    const token = signToken(newUser);
-    const { passwordHash: _, ...safeUser } = newUser;
-    await db.transaction(async () => {
-      if (isFirstUser) {
-        await db.insert("schools", {
-          id: schoolId,
-          name: schoolName.trim(),
-          createdBy: null,
-          createdAt: new Date().toISOString(),
-        });
-      }
-      await db.insert(COLLECTION, newUser);
-      if (isFirstUser) {
-        await db.update("schools", schoolId, { createdBy: newUser.id });
-      }
-      await recordAuditEvent(req, {
-        action: "USER_CREATED",
-        entityType: "user",
-        entityId: newUser.id,
-        metadata: { role: newUser.role },
-        actor: safeUser,
-      });
-    });
-    res.status(201).json({ user: safeUser, token, isFirstAdmin: isFirstUser });
+    const created = await createAccount(false, adminSchoolId);
+    if (created.status !== 201) {
+      return res.status(created.status).json(created.body);
+    }
+    res.status(201).json(created.body);
   }),
 );
 
@@ -252,6 +292,12 @@ router.post(
       return res.status(410).json({
         error:
           "This invite code has expired. Ask your school admin for a new one.",
+      });
+    }
+    if (await isSchoolSuspended({ role: invite.role || "student", schoolId: invite.schoolId })) {
+      return res.status(403).json({
+        error: "This school is suspended and cannot accept new accounts.",
+        code: "SCHOOL_SUSPENDED",
       });
     }
 
@@ -319,21 +365,32 @@ router.post(
     };
     const token = signToken(newUser);
     const { passwordHash: _, ...safeUser } = newUser;
-    await db.transaction(async () => {
-      await db.insert(COLLECTION, newUser);
-      await db.update("invite-codes", invite.id, {
-        used: true,
-        usedAt: new Date().toISOString(),
-        usedByUserId: newUser.id,
+    let claimed = false;
+    try {
+      claimed = await db.transaction(async () => {
+        await db.insert(COLLECTION, newUser);
+        if (!(await db.claimInvite(invite.id, newUser.id))) {
+          const error = new Error("Invite is no longer claimable.");
+          error.code = "INVITE_NOT_CLAIMABLE";
+          throw error;
+        }
+        await recordAuditEvent(req, {
+          action: "USER_ACTIVATED",
+          entityType: "user",
+          entityId: newUser.id,
+          metadata: { role: newUser.role },
+          actor: safeUser,
+        });
+        return true;
       });
-      await recordAuditEvent(req, {
-        action: "USER_ACTIVATED",
-        entityType: "user",
-        entityId: newUser.id,
-        metadata: { role: newUser.role },
-        actor: safeUser,
-      });
-    });
+    } catch (error) {
+      if (error.code !== "INVITE_NOT_CLAIMABLE") throw error;
+    }
+    if (!claimed) {
+      return res
+        .status(410)
+        .json({ error: "This invite code has already been used or has expired." });
+    }
     res.status(201).json({ user: safeUser, token });
   }),
 );
@@ -384,6 +441,12 @@ router.post(
     if (user.status && user.status !== "active") {
       return res.status(403).json({
         error: "This account is not active. Contact your school admin.",
+      });
+    }
+    if (await isSchoolSuspended(user)) {
+      return res.status(403).json({
+        error: "This school is suspended. Contact your platform administrator.",
+        code: "SCHOOL_SUSPENDED",
       });
     }
 
@@ -454,12 +517,6 @@ router.post(
       success: true,
       message: "If an account exists for that email, a reset link has been sent.",
     };
-    if (
-      process.env.NODE_ENV !== "production" &&
-      process.env.EMAIL_PROVIDER !== "smtp"
-    ) {
-      response.token = token;
-    }
     return res.json(response);
   }),
 );
@@ -574,6 +631,101 @@ router.post(
 router.get("/me", requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
+
+router.patch(
+  "/me",
+  requireAuth,
+  safe(async (req, res) => {
+    const body = req.body;
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: "INVALID_PROFILE", message: "A profile object is required." },
+      });
+    }
+    const allowedFields = new Set(["name", "email"]);
+    if (
+      Object.keys(body).length === 0 ||
+      Object.keys(body).some((field) => !allowedFields.has(field))
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: "INVALID_PROFILE_FIELDS",
+          message: "Only name and email can be updated in your profile.",
+        },
+      });
+    }
+
+    const updates = {};
+    if (body.name !== undefined) {
+      if (typeof body.name !== "string" || !body.name.trim() || body.name.trim().length > 120) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: "INVALID_NAME",
+            message: "Name must contain 1 to 120 characters.",
+          },
+        });
+      }
+      updates.name = body.name.trim();
+    }
+    if (body.email !== undefined) {
+      if (
+        typeof body.email !== "string" ||
+        body.email.trim().length > 254 ||
+        !/^\S+@\S+\.\S+$/.test(body.email.trim())
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: "INVALID_EMAIL",
+            message: "Enter a valid email address.",
+          },
+        });
+      }
+      updates.email = body.email.trim().toLowerCase();
+    }
+
+    const existing = await db.findById(COLLECTION, req.user.id);
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: { code: "USER_NOT_FOUND", message: "Account not found." },
+      });
+    }
+    if (updates.email && updates.email !== existing.email.toLowerCase()) {
+      const account = await db.findUserByEmail(updates.email, { includeDeleted: true });
+      if (account && account.id !== existing.id) {
+        return res.status(409).json({
+          success: false,
+          error: {
+            code: "EMAIL_ALREADY_IN_USE",
+            message: "That email address is already in use.",
+          },
+        });
+      }
+    }
+
+    const updated = await db.transaction(async () => {
+      const result = await db.update(COLLECTION, existing.id, updates);
+      await recordAuditEvent(req, {
+        action: "PROFILE_UPDATED",
+        entityType: "user",
+        entityId: existing.id,
+        metadata: { fields: Object.keys(updates) },
+        actor: existing,
+      });
+      return result;
+    });
+    const { passwordHash, ...safeUser } = updated;
+    return res.json({
+      success: true,
+      user: safeUser,
+      message: "Your profile has been updated.",
+    });
+  }),
+);
 
 router.post(
   "/logout",

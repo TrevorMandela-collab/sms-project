@@ -80,7 +80,7 @@ function renderStats() {
 function renderTable() {
   const tbody = document.getElementById("feesTableBody");
   const user = SmsAuth.getUser();
-  const canManage = user && user.role === "admin";
+  const canManage = user && ["admin", "school_admin"].includes(user.role);
 
   if (isLoading) {
     tbody.innerHTML = `<tr><td colspan="6"><div class="loading-state">Loading fee records…</div></td></tr>`;

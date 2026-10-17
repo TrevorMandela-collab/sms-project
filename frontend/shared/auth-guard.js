@@ -16,7 +16,7 @@
   }
 
   function getInitials(name) {
-    if (!name) return "?";
+    if (typeof name !== "string" || !name.trim()) return "?";
     const parts = name.trim().split(/\s+/);
     const first = parts[0]?.[0] || "";
     const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
@@ -44,18 +44,18 @@
       slot.innerHTML = `
         <div class="avatar-menu">
           <button class="avatar-trigger" id="avatarTrigger" aria-haspopup="true" aria-expanded="false">
-            <span class="avatar-circle">${getInitials(user.name)}</span>
+            <span class="avatar-circle" id="avatarInitials"></span>
           </button>
           <div class="avatar-dropdown" id="avatarDropdown">
             <div class="avatar-dropdown-header">
-              <span class="avatar-circle avatar-circle--lg">${getInitials(user.name)}</span>
+              <span class="avatar-circle avatar-circle--lg" id="avatarInitialsLarge"></span>
               <div>
-                <div class="avatar-dropdown-name">${user.name}</div>
-                <div class="avatar-dropdown-email">${user.email || ""}</div>
+                <div class="avatar-dropdown-name" id="avatarName"></div>
+                <div class="avatar-dropdown-email" id="avatarEmail"></div>
               </div>
             </div>
             <div class="avatar-dropdown-role">
-              <span class="user-badge-role">${user.role}</span>
+              <span class="user-badge-role" id="avatarRole"></span>
             </div>
             <button class="avatar-dropdown-logout" id="logoutBtn">Log out</button>
           </div>
@@ -64,6 +64,15 @@
 
       const trigger = document.getElementById("avatarTrigger");
       const dropdown = document.getElementById("avatarDropdown");
+      const initials = getInitials(user.name);
+      slot.querySelector("#avatarInitials").textContent = initials;
+      slot.querySelector("#avatarInitialsLarge").textContent = initials;
+      slot.querySelector("#avatarName").textContent =
+        typeof user.name === "string" ? user.name : "";
+      slot.querySelector("#avatarEmail").textContent =
+        typeof user.email === "string" ? user.email : "";
+      slot.querySelector("#avatarRole").textContent =
+        typeof user.role === "string" ? user.role : "";
 
       trigger.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -86,7 +95,10 @@
     // Role-gated UI: hide anything the current role isn't allowed to see/use
     document.querySelectorAll("[data-requires-role]").forEach((el) => {
       const allowed = el.dataset.requiresRole.split(",").map((r) => r.trim());
-      if (!allowed.includes(user.role)) {
+      const isAllowed =
+        allowed.includes(user.role) ||
+        (user.role === "school_admin" && allowed.includes("admin"));
+      if (!isAllowed) {
         el.style.display = "none";
       }
     });

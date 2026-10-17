@@ -57,7 +57,7 @@ function getFiltered() {
 function renderTable() {
   const tbody = document.getElementById('teachersTableBody');
   const user = SmsAuth.getUser();
-  const canManage = user && user.role === 'admin';
+  const canManage = user && ['admin', 'school_admin'].includes(user.role);
 
   if (isLoading) {
     tbody.innerHTML = `<tr><td colspan="4"><div class="loading-state">Loading teachers…</div></td></tr>`;

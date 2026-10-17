@@ -6,6 +6,8 @@ const Database = require("better-sqlite3");
 const { Pool } = require("pg");
 const legacyMigration = require("../migrations/002_import_legacy_store");
 
+const BOOTSTRAP_LOCK_NAMESPACE = 0x534D5301;
+const BOOTSTRAP_LOCK_ID = 1;
 const usePostgres = Boolean(process.env.DATABASE_URL);
 const transactionStorage = new AsyncLocalStorage();
 let pool = null;
@@ -486,6 +488,22 @@ async function transaction(work) {
   }
 }
 
+async function withBootstrapLock(work) {
+  if (typeof work !== "function") {
+    throw new TypeError("withBootstrapLock requires a callback.");
+  }
+  return transaction(async () => {
+    // BEGIN IMMEDIATE serializes SQLite writers; Postgres needs a shared transaction lock.
+    if (usePostgres) {
+      await queryPostgres("SELECT pg_advisory_xact_lock($1, $2)", [
+        BOOTSTRAP_LOCK_NAMESPACE,
+        BOOTSTRAP_LOCK_ID,
+      ]);
+    }
+    return work();
+  });
+}
+
 async function execute(sql, values = []) {
   await ensureSchema();
   if (usePostgres) return queryPostgres(normalizePostgresPlaceholders(sql), values);
@@ -677,6 +695,76 @@ async function findInviteByCode(code) {
         ),
       ].filter(Boolean);
   return recordFromRow("invite-codes", rows[0]);
+}
+
+async function claimInvite(id, userId, claimedAt = new Date().toISOString()) {
+  await ensureSchema();
+  const sql = usePostgres
+    ? "UPDATE invite_codes SET used_at = $1, used_by_user_id = $2, updated_at = $1 WHERE id = $3 AND used_at IS NULL AND (expires_at IS NULL OR expires_at > $1)"
+    : "UPDATE invite_codes SET used_at = ?, used_by_user_id = ?, updated_at = ? WHERE id = ? AND used_at IS NULL AND (expires_at IS NULL OR expires_at > ?)";
+  const values = usePostgres
+    ? [claimedAt, userId, id]
+    : [claimedAt, userId, claimedAt, id, claimedAt];
+  const result = usePostgres
+    ? await queryPostgres(sql, values)
+    : await querySqlite("run", sql, values);
+  return (usePostgres ? result.rowCount : result.changes) === 1;
+}
+
+async function insertPlatformAuditEvent(record) {
+  await ensureSchema();
+  const values = [
+    record.id,
+    record.actorUserId || null,
+    record.schoolId || null,
+    record.action,
+    record.entityType,
+    record.entityId || null,
+    record.timestamp,
+    JSON.stringify(record.metadata || {}),
+    record.ipAddress || null,
+    record.userAgent || null,
+  ];
+  const placeholders = values.map((_, index) =>
+    usePostgres ? `$${index + 1}` : "?",
+  );
+  const sql = `INSERT INTO platform_audit_logs
+    (id, actor_user_id, school_id, action, entity_type, entity_id, timestamp, metadata, ip_address, user_agent)
+    VALUES (${placeholders.join(", ")})`;
+  if (usePostgres) await queryPostgres(sql, values);
+  else await querySqlite("run", sql, values);
+  return record;
+}
+
+async function listPlatformAuditLogs({ page = 1, limit = 25 } = {}) {
+  await ensureSchema();
+  const countResult = usePostgres
+    ? await queryPostgres("SELECT COUNT(*) AS total FROM platform_audit_logs")
+    : await querySqlite("get", "SELECT COUNT(*) AS total FROM platform_audit_logs");
+  const total = Number(usePostgres ? countResult.rows[0].total : countResult.total);
+  const limitPlaceholder = usePostgres ? "$1" : "?";
+  const offsetPlaceholder = usePostgres ? "$2" : "?";
+  const rows = usePostgres
+    ? (
+        await queryPostgres(
+          `SELECT id, actor_user_id AS "actorUserId", school_id AS "schoolId", action, entity_type AS "entityType", entity_id AS "entityId", timestamp, metadata, ip_address AS "ipAddress", user_agent AS "userAgent" FROM platform_audit_logs ORDER BY timestamp DESC, id ASC LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder}`,
+          [limit, (page - 1) * limit],
+        )
+      ).rows
+    : await querySqlite(
+        "all",
+        `SELECT id, actor_user_id AS actorUserId, school_id AS schoolId, action, entity_type AS entityType, entity_id AS entityId, timestamp, metadata, ip_address AS ipAddress, user_agent AS userAgent FROM platform_audit_logs ORDER BY timestamp DESC, id ASC LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder}`,
+        [limit, (page - 1) * limit],
+      );
+  return {
+    data: rows.map((row) => ({ ...row, metadata: decodeJson(row.metadata) })),
+    meta: {
+      page,
+      limit,
+      total,
+      pages: Math.ceil(total / limit),
+    },
+  };
 }
 
 async function findChatByInviteCode(schoolId, code) {
@@ -1272,6 +1360,9 @@ module.exports = {
   findByIds,
   findUserByEmail,
   findInviteByCode,
+  claimInvite,
+  insertPlatformAuditEvent,
+  listPlatformAuditLogs,
   findChatByInviteCode,
   readByChatId,
   markPasswordResetsUsed,
@@ -1289,6 +1380,7 @@ module.exports = {
   all,
   dialect: usePostgres ? "postgres" : "sqlite",
   transaction,
+  withBootstrapLock,
   completePasswordReset,
   close,
   pool,

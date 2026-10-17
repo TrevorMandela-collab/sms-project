@@ -24,11 +24,14 @@ const inviteCodesRoutes = require('./routes/invite-codes');
 const chatsRoutes = require('./routes/chats');
 const schoolsRoutes = require('./routes/schools');
 const auditLogsRoutes = require('./routes/audit-logs');
+const qaRoutes = require('./routes/qa');
 const db = require('./utils/db');
 const { initRealtime } = require('./utils/realtime');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+const HOST =
+  process.env.HOST || (config.isProduction ? '0.0.0.0' : '127.0.0.1');
 
 if (config.trustProxyHops) app.set('trust proxy', config.trustProxyHops);
 
@@ -63,6 +66,7 @@ app.use('/api/invite-codes', inviteCodesRoutes);
 app.use('/api/chats', chatsRoutes);
 app.use('/api/schools', schoolsRoutes);
 app.use('/api/audit-logs', auditLogsRoutes);
+app.use('/api/qa', qaRoutes);
 
 // 404 fallback for unmatched API routes
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
@@ -112,8 +116,8 @@ process.on("SIGTERM", () => shutdown("SIGTERM"));
 db.migrate()
   .then(() => {
     console.log('[db] Connected and schema ready.');
-    server.listen(PORT, () => {
-      console.log(`SMS backend running on http://localhost:${PORT}`);
+    server.listen(PORT, HOST, () => {
+      console.log(`SMS backend running on http://${HOST}:${PORT}`);
       console.log(`Health check: http://localhost:${PORT}/api/health`);
       console.log(`WebSocket endpoint: ws://localhost:${PORT}/ws`);
     });

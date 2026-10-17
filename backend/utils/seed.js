@@ -1,22 +1,66 @@
 require("dotenv").config();
 const bcrypt = require("bcryptjs");
-const db = require("./db");
+const crypto = require("crypto");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 
-async function run() {
+function validateDemoTarget() {
   if (process.env.NODE_ENV !== "development") {
     throw new Error("Demo data can only be seeded when NODE_ENV=development.");
   }
-  const password = process.env.DEMO_SEED_PASSWORD;
+  if (process.env.DATABASE_URL) {
+    throw new Error("Demo seeding refuses DATABASE_URL; use an isolated local SQLite database.");
+  }
+  if (!process.env.SQLITE_PATH) {
+    throw new Error("Set SQLITE_PATH to a dedicated SQLite file inside the system temporary directory.");
+  }
+  if (process.env.SQLITE_PATH.trim() === ":memory:") {
+    throw new Error("Demo seeding requires an isolated SQLite file, not an in-memory or special database target.");
+  }
+
+  let tempRoot;
+  let targetPath;
+  try {
+    tempRoot = fs.realpathSync(os.tmpdir());
+    const configuredPath = path.resolve(process.env.SQLITE_PATH);
+    targetPath = fs.existsSync(configuredPath)
+      ? fs.realpathSync(configuredPath)
+      : path.join(
+          fs.realpathSync(path.dirname(configuredPath)),
+          path.basename(configuredPath),
+        );
+  } catch {
+    throw new Error("SQLITE_PATH and its parent directory must exist or resolve inside the system temporary directory.");
+  }
+
+  const relativePath = path.relative(tempRoot, targetPath);
   if (
-    typeof password !== "string" ||
-    password.length < 12 ||
-    Buffer.byteLength(password, "utf8") > 72
+    !relativePath ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativePath)
   ) {
+    throw new Error("Demo seeding only accepts SQLITE_PATH values inside the system temporary directory.");
+  }
+}
+
+validateDemoTarget();
+const db = require("./db");
+
+async function run() {
+  const configuredPassword = process.env.DEMO_SEED_PASSWORD;
+  if (configuredPassword !== undefined && (
+    typeof configuredPassword !== "string" ||
+    configuredPassword.length < 12 ||
+    Buffer.byteLength(configuredPassword, "utf8") > 72
+  )) {
     throw new Error(
       "Set DEMO_SEED_PASSWORD to a unique value between 12 and 72 UTF-8 bytes.",
     );
   }
 
+  const password = configuredPassword || crypto.randomBytes(24).toString("base64url");
   await db.migrate();
   const createdAt = new Date().toISOString();
   const today = createdAt.slice(0, 10);
@@ -48,6 +92,34 @@ async function run() {
         passwordHash,
         role: "admin",
         schoolId,
+        status: "active",
+        tokenVersion: 0,
+        createdAt,
+      },
+    },
+    {
+      collection: "users",
+      record: {
+        id: "demo-school-admin",
+        name: "Demo School Administrator",
+        email: "school-admin@greenvalley.example",
+        passwordHash,
+        role: "school_admin",
+        schoolId,
+        status: "active",
+        tokenVersion: 0,
+        createdAt,
+      },
+    },
+    {
+      collection: "users",
+      record: {
+        id: "demo-super-admin",
+        name: "Demo Platform Administrator",
+        email: "platform-admin@mandela.example",
+        passwordHash,
+        role: "super_admin",
+        schoolId: null,
         status: "active",
         tokenVersion: 0,
         createdAt,
@@ -336,11 +408,31 @@ async function run() {
         );
       }
     }
+    await db.insertPlatformAuditEvent({
+      id: crypto.randomUUID(),
+      actorUserId: "demo-super-admin",
+      schoolId: null,
+      action: "PLATFORM_ADMIN_PROVISIONED",
+      entityType: "user",
+      entityId: "demo-super-admin",
+      timestamp: createdAt,
+      metadata: { source: "development_seed" },
+      ipAddress: null,
+      userAgent: null,
+    });
   });
 
   console.log("Development demo data created for Green Valley Primary & JSS.");
-  console.log("Admin: admin@greenvalley.example");
-  console.log("All demo accounts use DEMO_SEED_PASSWORD.");
+  console.log("School Admin: school-admin@greenvalley.example");
+  console.log("Teacher: teacher@greenvalley.example");
+  console.log("Parent: parent@greenvalley.example");
+  console.log("Student: student@greenvalley.example");
+  console.log("Super Admin: platform-admin@mandela.example");
+  if (configuredPassword) {
+    console.log("All demo accounts use the configured DEMO_SEED_PASSWORD.");
+  } else {
+    console.log(`Generated one-time local demo password (copy it now): ${password}`);
+  }
 }
 
 run().catch((error) => {

@@ -2,6 +2,7 @@ const express = require("express");
 const crypto = require("crypto");
 const db = require("../utils/db");
 const { requireAuth, requireRole } = require("../middleware/auth");
+const { recordAuditEvent } = require("../utils/auditLog");
 
 const router = express.Router();
 const COLLECTION = "invite-codes";
@@ -108,7 +109,15 @@ router.post(
       expiresAt,
       used: false,
     };
-    await db.insert(COLLECTION, invite);
+    await db.transaction(async () => {
+      await db.insert(COLLECTION, invite);
+      await recordAuditEvent(req, {
+        action: "INVITE_CODE_CREATED",
+        entityType: "invite-code",
+        entityId: invite.id,
+        metadata: { role: invite.role },
+      });
+    });
     res.status(201).json(invite);
   }),
 );
@@ -150,7 +159,18 @@ router.delete(
     if (!invite || invite.schoolId !== req.user.schoolId) {
       return res.status(404).json({ error: "Invite code not found." });
     }
-    const removed = await db.remove(COLLECTION, req.params.id);
+    const removed = await db.transaction(async () => {
+      const didRemove = await db.remove(COLLECTION, req.params.id);
+      if (didRemove) {
+        await recordAuditEvent(req, {
+          action: "INVITE_CODE_REVOKED",
+          entityType: "invite-code",
+          entityId: invite.id,
+          metadata: { role: invite.role || "student" },
+        });
+      }
+      return didRemove;
+    });
     if (!removed)
       return res.status(404).json({ error: "Invite code not found." });
     res.status(204).end();

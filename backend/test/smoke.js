@@ -1,11 +1,17 @@
 const assert = require("assert");
+const crypto = require("crypto");
 const fs = require("fs");
+const Module = require("module");
+const os = require("os");
 const path = require("path");
 const Database = require("better-sqlite3");
+const WebSocket = require("ws");
 const { spawn, spawnSync } = require("child_process");
 
 const port = 4311;
-const databasePath = path.join(__dirname, "..", "data", "smoke-test.sqlite");
+const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "sms-smoke-test-"));
+const databasePath = path.join(tempDirectory, "smoke-test.sqlite");
+const repositoryDataDirectory = path.resolve(__dirname, "..", "data");
 const baseUrl = `http://127.0.0.1:${port}/api`;
 
 function wait(ms) {
@@ -14,18 +20,18 @@ function wait(ms) {
 
 function waitForExit(child, timeoutMs) {
   return new Promise((resolve, reject) => {
-    if (child.exitCode !== null || child.signalCode !== null) {
+    if (child.closed) {
       resolve();
       return;
     }
 
     const timer = setTimeout(() => {
-      child.removeListener("exit", onExit);
+      child.removeListener("close", onClose);
       child.removeListener("error", onError);
       reject(new Error("Smoke-test server did not exit before the timeout"));
     }, timeoutMs);
     const cleanup = () => clearTimeout(timer);
-    const onExit = () => {
+    const onClose = () => {
       cleanup();
       resolve();
     };
@@ -33,7 +39,7 @@ function waitForExit(child, timeoutMs) {
       cleanup();
       reject(error);
     };
-    child.once("exit", onExit);
+    child.once("close", onClose);
     child.once("error", onError);
   });
 }
@@ -61,30 +67,143 @@ async function request(endpoint, options = {}) {
   }
 }
 
-async function run() {
-  fs.rmSync(databasePath, { force: true });
-  const server = spawn(process.execPath, ["server.js"], {
-    cwd: path.join(__dirname, ".."),
-    env: {
-      ...process.env,
-      PORT: String(port),
-      SQLITE_PATH: databasePath,
-      DATABASE_URL: "",
-      JWT_SECRET: "smoke-test-secret",
-      NODE_ENV: "test",
-      TRUST_PROXY_HOPS: "1",
+async function assertProductionForgotPasswordDoesNotDiscloseToken() {
+  const routePath = path.resolve(__dirname, "..", "routes", "auth.js");
+  const originalLoad = Module._load;
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousTestMode = process.env.PASSWORD_RESET_TOKEN_TEST_MODE;
+  const passThrough = (_req, _res, next) => next();
+  const databaseStub = {
+    findUserByEmail: async (email) => ({
+      id: "production-reset-test-user",
+      email,
+      name: "Reset Test User",
+    }),
+    transaction: async (callback) => callback(),
+    markPasswordResetsUsed: async () => {},
+    insert: async () => {},
+  };
+  const dependencyStubs = {
+    "../utils/db": databaseStub,
+    "../middleware/auth": {
+      signToken: () => "unused-test-jwt",
+      requireAuth: passThrough,
+      requireRole: () => passThrough,
     },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let output = "";
-  server.stdout.on("data", (chunk) => {
-    output += chunk;
-  });
-  server.stderr.on("data", (chunk) => {
-    output += chunk;
-  });
+    "../middleware/rateLimiter": {
+      authRateLimit: (_req, _res, next) => next(),
+      loginRateLimit: (_req, _res, next) => next(),
+      passwordResetRateLimit: (_req, _res, next) => next(),
+    },
+    "../utils/schoolStatus": { isSchoolSuspended: async () => false },
+    "../utils/email": { sendPasswordResetEmail: async () => false },
+    "../utils/auditLog": { recordAuditEvent: async () => {} },
+  };
 
   try {
+    process.env.NODE_ENV = "production";
+    process.env.PASSWORD_RESET_TOKEN_TEST_MODE = "true";
+    Module._load = function loadWithRouteStubs(requested, parent, isMain) {
+      if (parent?.filename === routePath && dependencyStubs[requested]) {
+        return dependencyStubs[requested];
+      }
+      return originalLoad.call(this, requested, parent, isMain);
+    };
+    delete require.cache[routePath];
+    const router = require(routePath);
+    const forgotPasswordRoute = router.stack.find(
+      (layer) => layer.route?.path === "/forgot-password",
+    );
+    assert.ok(forgotPasswordRoute, "forgot-password route must be registered");
+
+    let responseStatus = 200;
+    let resolveResponse;
+    const responseBodyPromise = new Promise((resolve) => {
+      resolveResponse = resolve;
+    });
+    const response = {
+      status(status) {
+        responseStatus = status;
+        return this;
+      },
+      json(body) {
+        resolveResponse(body);
+        return this;
+      },
+    };
+    const handler = forgotPasswordRoute.route.stack.at(-1).handle;
+    handler(
+      {
+        body: { email: "production-reset@example.test" },
+        get: (name) =>
+          name.toLowerCase() === "x-local-password-reset-test" ? "true" : undefined,
+      },
+      response,
+    );
+    const body = await responseBodyPromise;
+    assert.equal(responseStatus, 200);
+    assert.deepEqual(body, {
+      success: true,
+      message: "If an account exists for that email, a reset link has been sent.",
+    });
+  } finally {
+    Module._load = originalLoad;
+    delete require.cache[routePath];
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    if (previousTestMode === undefined) {
+      delete process.env.PASSWORD_RESET_TOKEN_TEST_MODE;
+    } else {
+      process.env.PASSWORD_RESET_TOKEN_TEST_MODE = previousTestMode;
+    }
+  }
+}
+
+async function run() {
+  let server;
+  let realtimeSocket;
+  let output = "";
+
+  try {
+    await assertProductionForgotPasswordDoesNotDiscloseToken();
+
+    assert.equal(
+      path.dirname(databasePath),
+      tempDirectory,
+      "smoke-test database must be inside its unique temporary directory",
+    );
+    assert.notEqual(
+      path.dirname(databasePath),
+      repositoryDataDirectory,
+      "smoke-test database must not use the repository data directory",
+    );
+    assert.equal(
+      fs.existsSync(databasePath),
+      false,
+      "new temporary database path must not already exist",
+    );
+
+    server = spawn(process.execPath, ["server.js"], {
+      cwd: path.join(__dirname, ".."),
+      env: {
+        ...process.env,
+        PORT: String(port),
+        SQLITE_PATH: databasePath,
+        DATABASE_URL: "",
+        JWT_SECRET: "smoke-test-secret",
+        NODE_ENV: "test",
+        PASSWORD_RESET_TOKEN_TEST_MODE: "false",
+        TRUST_PROXY_HOPS: "1",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    server.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    server.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+
     const health = await request("/health");
     assert.equal(health.status, 200, "health endpoint should respond");
     const allowedOrigin = await request("/health", {
@@ -130,24 +249,206 @@ async function run() {
       "production configuration failure should identify the missing secret",
     );
 
-    const registration = await request("/auth/register", {
+    const bootstrapAttempts = [
+      {
+        email: "smoke@example.test",
+        body: {
+          name: "Smoke Admin",
+          email: "smoke@example.test",
+          password: "smoke-test-password-123!",
+          role: "admin",
+          schoolName: "Smoke School",
+        },
+      },
+      {
+        email: "second-smoke@example.test",
+        body: {
+          name: "Second Smoke Admin",
+          email: "second-smoke@example.test",
+          password: "second-smoke-password-456!",
+          role: "admin",
+          schoolName: "Second Smoke School",
+        },
+      },
+    ];
+    const bootstrapResponses = await Promise.all(
+      bootstrapAttempts.map(({ body }) =>
+        request("/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      ),
+    );
+    const winningBootstrapIndex = bootstrapResponses.findIndex(
+      (response) => response.status === 201,
+    );
+    const registrations = bootstrapResponses.filter(
+      (response) => response.status === 201,
+    );
+    const rejectedBootstrapIndex = bootstrapResponses.findIndex(
+      (response) => response.status === 403,
+    );
+    assert.equal(
+      registrations.length,
+      1,
+      "exactly one concurrent unauthenticated request may bootstrap the first admin",
+    );
+    assert.notEqual(rejectedBootstrapIndex, -1, "the losing bootstrap request must be denied");
+    assert.equal(bootstrapResponses[rejectedBootstrapIndex].status, 403);
+    assert.notEqual(winningBootstrapIndex, -1, "one bootstrap request must win");
+    const registration = registrations[0];
+    const auth = await registration.json();
+    const accountEmail = bootstrapAttempts[winningBootstrapIndex].email;
+    const originalPassword = bootstrapAttempts[winningBootstrapIndex].body.password;
+    const expectedSchoolName = bootstrapAttempts[winningBootstrapIndex].body.schoolName;
+    const losingEmail = bootstrapAttempts[rejectedBootstrapIndex].email;
+    const bootstrapDatabase = new Database(databasePath);
+    try {
+      assert.equal(
+        bootstrapDatabase
+          .prepare("SELECT COUNT(*) AS count FROM users")
+          .get().count,
+        1,
+        "only one user may be created by concurrent bootstrap requests",
+      );
+      assert.equal(
+        bootstrapDatabase
+          .prepare("SELECT COUNT(*) AS count FROM users WHERE role_code = 'admin'")
+          .get().count,
+        1,
+        "only one first-admin account may be created",
+      );
+      assert.equal(
+        bootstrapDatabase
+          .prepare("SELECT COUNT(*) AS count FROM schools")
+          .get().count,
+        1,
+        "only one bootstrap school may be created",
+      );
+      assert.equal(
+        bootstrapDatabase
+          .prepare("SELECT COUNT(*) AS count FROM users WHERE email = ?")
+          .get(losingEmail).count,
+        0,
+        "the losing bootstrap email must not be persisted",
+      );
+    } finally {
+      bootstrapDatabase.close();
+    }
+
+    const unauthorizedSecondRegistration = await request("/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        name: "Smoke Admin",
-        email: "smoke@example.test",
-        password: "smoke-test-password-123!",
+        name: "Unauthorized Second Admin",
+        email: "second-smoke@example.test",
+        password: "second-smoke-password-123!",
         role: "admin",
-        schoolName: "Smoke School",
+        schoolName: "Unauthorized School",
       }),
     });
-    if (registration.status !== 201)
-      throw new Error(`registration failed: ${await registration.text()}`);
-    const auth = await registration.json();
+    assert.equal(
+      unauthorizedSecondRegistration.status,
+      403,
+      "a later unauthenticated registration must not create another account",
+    );
+    const afterDeniedBootstrap = new Database(databasePath);
+    try {
+      assert.equal(
+        afterDeniedBootstrap
+          .prepare("SELECT COUNT(*) AS count FROM users")
+          .get().count,
+        1,
+        "denied unauthenticated registration must not create a second account",
+      );
+    } finally {
+      afterDeniedBootstrap.close();
+    }
     const headers = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${auth.token}`,
     };
+
+    const suspendedRegistration = await request("/auth/register", {
+      method: "POST",
+      headers: { ...headers, "X-Forwarded-For": "198.51.100.30" },
+      body: JSON.stringify({
+        name: "Suspension Regression User",
+        email: "suspension-regression@example.test",
+        password: "suspension-regression-password-123!",
+        role: "teacher",
+      }),
+    });
+    assert.equal(suspendedRegistration.status, 201);
+    const suspendedAccount = await suspendedRegistration.json();
+    const suspendedTokenHeaders = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${suspendedAccount.token}`,
+    };
+    const suspendedAccountBefore = await request("/auth/me", {
+      headers: suspendedTokenHeaders,
+    });
+    assert.equal(
+      suspendedAccountBefore.status,
+      200,
+      "the suspension regression token must work before suspension",
+    );
+    const suspendAccount = await request(
+      `/auth/users/${encodeURIComponent(suspendedAccount.user.id)}/status`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ status: "suspended" }),
+      },
+    );
+    assert.equal(suspendAccount.status, 200, "the supported suspension route should suspend the test account");
+    const suspendedAccountAfter = await request("/auth/me", {
+      headers: suspendedTokenHeaders,
+    });
+    assert.equal(
+      suspendedAccountAfter.status,
+      401,
+      "the original JWT must be rejected after suspension increments tokenVersion",
+    );
+
+    const deletedRegistration = await request("/auth/register", {
+      method: "POST",
+      headers: { ...headers, "X-Forwarded-For": "198.51.100.31" },
+      body: JSON.stringify({
+        name: "Soft Delete Regression User",
+        email: "soft-delete-regression@example.test",
+        password: "soft-delete-regression-password-123!",
+        role: "teacher",
+      }),
+    });
+    assert.equal(deletedRegistration.status, 201);
+    const deletedAccount = await deletedRegistration.json();
+    const deletedTokenHeaders = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${deletedAccount.token}`,
+    };
+    const deletedAccountBefore = await request("/auth/me", {
+      headers: deletedTokenHeaders,
+    });
+    assert.equal(
+      deletedAccountBefore.status,
+      200,
+      "the soft-delete regression token must work before deletion",
+    );
+    const deleteAccount = await request(
+      `/auth/users/${encodeURIComponent(deletedAccount.user.id)}`,
+      { method: "DELETE", headers },
+    );
+    assert.equal(deleteAccount.status, 204, "the supported user route should soft-delete the test account");
+    const deletedAccountAfter = await request("/auth/me", {
+      headers: deletedTokenHeaders,
+    });
+    assert.equal(
+      deletedAccountAfter.status,
+      401,
+      "the original JWT must be rejected after soft deletion",
+    );
 
     const studentResponse = await request("/students", {
       method: "POST",
@@ -585,6 +886,7 @@ async function run() {
       body: JSON.stringify({ name: "Grade 8B", teacherIds: [] }),
     });
     assert.equal(otherClassResponse.status, 201);
+    const otherClass = await otherClassResponse.json();
     const otherClassStudentResponse = await request("/students", {
       method: "POST",
       headers,
@@ -609,6 +911,53 @@ async function run() {
       ...headers,
       Authorization: `Bearer ${teacherAuth.token}`,
     };
+    const assignedTimetableResponse = await request("/timetable", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        classId: assignedClass.id,
+        className: assignedClass.name,
+        day: "Monday",
+        subject: "Science",
+        teacherId: assignedTeacher.id,
+        startTime: "08:00",
+        endTime: "08:40",
+      }),
+    });
+    assert.equal(assignedTimetableResponse.status, 201);
+    const assignedTimetable = await assignedTimetableResponse.json();
+    const unassignedTimetableResponse = await request("/timetable", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        classId: otherClass.id,
+        className: otherClass.name,
+        day: "Monday",
+        subject: "Science",
+        startTime: "08:40",
+        endTime: "09:20",
+      }),
+    });
+    assert.equal(unassignedTimetableResponse.status, 201);
+    const unassignedTimetable = await unassignedTimetableResponse.json();
+    const teacherTimetableResponse = await request("/timetable", {
+      headers: teacherHeaders,
+    });
+    assert.equal(
+      teacherTimetableResponse.status,
+      200,
+      "teachers should be able to view their timetable",
+    );
+    const teacherTimetable = await teacherTimetableResponse.json();
+    assert.ok(
+      teacherTimetable.some((entry) => entry.id === assignedTimetable.id),
+      "teachers should view timetable entries for their assigned classes",
+    );
+    assert.ok(
+      !teacherTimetable.some((entry) => entry.id === unassignedTimetable.id),
+      "teachers must not view timetable entries for other classes",
+    );
+
     const assignedStudentResponse = await request(`/students/${student.id}`, {
       headers: teacherHeaders,
     });
@@ -691,7 +1040,7 @@ async function run() {
     const schoolProfile = await request("/schools/me", { headers });
     assert.equal(schoolProfile.status, 200, "admin should read school profile");
     const schoolData = await schoolProfile.json();
-    assert.equal(schoolData.school.name, "Smoke School");
+    assert.equal(schoolData.school.name, expectedSchoolName);
 
     const schoolUpdate = await request("/schools/me", {
       method: "PATCH",
@@ -749,29 +1098,78 @@ async function run() {
       "fees with more than two decimal places must be rejected",
     );
 
+    const preResetSession = await request("/students", { headers });
+    assert.equal(preResetSession.status, 200, "the bearer token must work before password reset");
+
     const forgotResponse = await request("/auth/forgot-password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: "smoke@example.test" }),
+      body: JSON.stringify({ email: accountEmail }),
     });
     assert.equal(forgotResponse.status, 200, "password reset request should be accepted");
     const forgotBody = await forgotResponse.json();
-    assert.ok(forgotBody.token, "test mode should expose the reset token");
+    assert.equal(
+      Object.hasOwn(forgotBody, "token"),
+      false,
+      "the password-reset feature flag being off must not disclose a reset token",
+    );
+    const headerOnlyForgotResponse = await request("/auth/forgot-password", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Local-Password-Reset-Test": "true",
+      },
+      body: JSON.stringify({ email: accountEmail }),
+    });
+    assert.equal(headerOnlyForgotResponse.status, 200);
+    const headerOnlyForgotBody = await headerOnlyForgotResponse.json();
+    assert.equal(
+      Object.hasOwn(headerOnlyForgotBody, "token"),
+      false,
+      "the test header alone must not disclose a reset token",
+    );
+    assert.deepEqual(
+      headerOnlyForgotBody,
+      forgotBody,
+      "the test header must not change the public response structure",
+    );
+    const nonexistentForgotResponse = await request("/auth/forgot-password", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Local-Password-Reset-Test": "true",
+        "X-Forwarded-For": "198.51.100.11",
+      },
+      body: JSON.stringify({ email: "nobody@example.test" }),
+    });
+    assert.equal(nonexistentForgotResponse.status, 200);
+    assert.deepEqual(
+      await nonexistentForgotResponse.json(),
+      forgotBody,
+      "existing and nonexistent accounts must receive the same generic response",
+    );
+
     const resetDatabase = new Database(databasePath);
     const resetRecords = resetDatabase
-      .prepare("SELECT * FROM password_resets WHERE user_id = ?")
+      .prepare("SELECT * FROM password_resets WHERE user_id = ? AND used_at IS NULL")
       .all(auth.user.id);
     assert.equal(resetRecords.length, 1, "a reset token should be created");
     const savedReset = resetRecords[0];
-    assert.ok(savedReset.token_hash, "only a reset-token hash should be persisted");
+    assert.match(savedReset.token_hash, /^[a-f0-9]{64}$/, "only a SHA-256 reset-token hash should be persisted");
     assert.equal(savedReset.token, undefined, "plaintext reset tokens must not be persisted");
-    const resetToken = forgotBody.token;
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    resetDatabase
+      .prepare("UPDATE password_resets SET token_hash = ? WHERE id = ?")
+      .run(crypto.createHash("sha256").update(resetToken).digest("hex"), savedReset.id);
     resetDatabase.close();
 
     const passwordResetAttempts = await Promise.all([
       request("/auth/reset-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Forwarded-For": "198.51.100.12",
+        },
         body: JSON.stringify({
           token: resetToken,
           password: "updated-smoke-password-456!",
@@ -793,17 +1191,56 @@ async function run() {
     );
     const consumedResetDatabase = new Database(databasePath);
     const consumedReset = consumedResetDatabase
-      .prepare("SELECT used_at FROM password_resets WHERE user_id = ?")
-      .get(auth.user.id);
+      .prepare("SELECT used_at FROM password_resets WHERE token_hash = ?")
+      .get(crypto.createHash("sha256").update(resetToken).digest("hex"));
     consumedResetDatabase.close();
     assert.ok(consumedReset.used_at, "successful reset must consume its token");
+
+    const expiringForgotResponse = await request("/auth/forgot-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: accountEmail }),
+    });
+    assert.equal(expiringForgotResponse.status, 200);
+    const expiringForgotBody = await expiringForgotResponse.json();
+    assert.equal(
+      Object.hasOwn(expiringForgotBody, "token"),
+      false,
+      "expiry-test reset requests must not disclose their token",
+    );
+    const expiringToken = crypto.randomBytes(32).toString("hex");
+    const expiredTokenHash = crypto
+      .createHash("sha256")
+      .update(expiringToken)
+      .digest("hex");
+    const expiryDatabase = new Database(databasePath);
+    expiryDatabase
+      .prepare("UPDATE password_resets SET token_hash = ?, expires_at = ? WHERE user_id = ? AND used_at IS NULL")
+      .run(expiredTokenHash, new Date(Date.now() - 60_000).toISOString(), auth.user.id);
+    expiryDatabase.close();
+    const expiredResetResponse = await request("/auth/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: expiringToken,
+        password: "expired-smoke-password-789!",
+      }),
+    });
+    assert.equal(expiredResetResponse.status, 410, "expired reset tokens must remain unusable");
+
+    const invalidatedResetSession = await request("/students", { headers });
+    assert.equal(
+      invalidatedResetSession.status,
+      401,
+      "password reset must invalidate bearer tokens issued before the reset",
+    );
 
     const oldLogin = await request("/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        email: "smoke@example.test",
-        password: "smoke-test-password-123!",
+        email: accountEmail,
+        password: originalPassword,
       }),
     });
     assert.equal(oldLogin.status, 401, "old password should no longer work");
@@ -812,7 +1249,7 @@ async function run() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        email: "smoke@example.test",
+        email: accountEmail,
         password: "updated-smoke-password-456!",
       }),
     });
@@ -839,7 +1276,7 @@ async function run() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        email: "smoke@example.test",
+        email: accountEmail,
         password: "rotated-smoke-password-789!",
       }),
     });
@@ -905,6 +1342,237 @@ async function run() {
     const repairedSchool = await repairedProfile.json();
     assert.ok(repairedSchool.school.id, "a fallback school should be created");
 
+    const lifecycleStudentResponse = await request("/students", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "Lifecycle Invite Student", class: "Grade 1" }),
+    });
+    assert.equal(lifecycleStudentResponse.status, 201);
+    const lifecycleStudent = await lifecycleStudentResponse.json();
+    const suspensionInviteResponse = await request("/invite-codes", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        role: "student",
+        studentId: lifecycleStudent.id,
+      }),
+    });
+    assert.equal(suspensionInviteResponse.status, 201);
+    const suspensionInvite = await suspensionInviteResponse.json();
+    const accessToken = headers.Authorization.slice("Bearer ".length);
+    realtimeSocket = new WebSocket(
+      `ws://127.0.0.1:${port}/ws?token=${encodeURIComponent(accessToken)}`,
+    );
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("WebSocket did not connect for lifecycle test")),
+        3000,
+      );
+      realtimeSocket.once("open", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+      realtimeSocket.once("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+    });
+    await wait(100);
+
+    const lifecycleDatabase = new Database(databasePath);
+    const schoolRow = lifecycleDatabase
+      .prepare("SELECT settings_json FROM schools WHERE id = ?")
+      .get(repairedSchool.school.id);
+    const schoolSettings = JSON.parse(schoolRow.settings_json || "{}");
+    schoolSettings.status = "suspended";
+    lifecycleDatabase
+      .prepare("UPDATE schools SET settings_json = ? WHERE id = ?")
+      .run(JSON.stringify(schoolSettings), repairedSchool.school.id);
+    lifecycleDatabase.close();
+
+    const suspendedSchoolRequest = await request("/students", { headers });
+    assert.equal(
+      suspendedSchoolRequest.status,
+      403,
+      "suspended schools must not access protected APIs",
+    );
+    const suspendedSchoolLogin = await request("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: accountEmail,
+        password: "rotated-smoke-password-789!",
+      }),
+    });
+    assert.equal(
+      suspendedSchoolLogin.status,
+      403,
+      "users in suspended schools must not sign in",
+    );
+    const suspendedInviteRegistration = await request(
+      "/auth/register-with-code",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: suspensionInvite.code,
+          name: "Suspended School Student",
+          email: "suspended-school-student@example.test",
+          password: "suspended-school-password-123!",
+          role: "student",
+        }),
+      },
+    );
+    assert.equal(
+      suspendedInviteRegistration.status,
+      403,
+      "suspended schools must not accept invite registrations",
+    );
+    const socketClosed = new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("Suspended-school WebSocket stayed connected")),
+        3000,
+      );
+      realtimeSocket.once("close", (code) => {
+        clearTimeout(timer);
+        resolve(code);
+      });
+      realtimeSocket.send(JSON.stringify({ type: "join", chatId: "lifecycle-test" }));
+    });
+    assert.equal(await socketClosed, 4003);
+
+    const restoreLifecycleDatabase = new Database(databasePath);
+    schoolSettings.status = "active";
+    restoreLifecycleDatabase
+      .prepare("UPDATE schools SET settings_json = ? WHERE id = ?")
+      .run(JSON.stringify(schoolSettings), repairedSchool.school.id);
+    restoreLifecycleDatabase.close();
+    const restoredSchoolRequest = await request("/students", { headers });
+    assert.equal(restoredSchoolRequest.status, 200);
+
+    const revokedInviteResponse = await request(
+      `/invite-codes/${suspensionInvite.id}`,
+      { method: "DELETE", headers },
+    );
+    assert.equal(revokedInviteResponse.status, 204);
+    const inviteAuditResponse = await request(
+      "/audit-logs?page=1&limit=100",
+      { headers },
+    );
+    assert.equal(inviteAuditResponse.status, 200);
+    const inviteAuditPage = await inviteAuditResponse.json();
+    assert.deepEqual(
+      inviteAuditPage.data
+        .filter((event) => event.entityId === suspensionInvite.id)
+        .map((event) => event.action)
+        .sort(),
+      ["INVITE_CODE_CREATED", "INVITE_CODE_REVOKED"],
+      "invite creation and revocation should be auditable",
+    );
+
+    const chatResponse = await request("/chats", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "Reaction Regression Chat" }),
+    });
+    assert.equal(chatResponse.status, 201, "admins should create a test chat");
+    const testChat = await chatResponse.json();
+    const updatedChatResponse = await request(`/chats/${testChat.id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({
+        name: "Updated Reaction Regression Chat",
+        memberIds: [auth.user.id],
+      }),
+    });
+    assert.equal(
+      updatedChatResponse.status,
+      200,
+      `chat update failed: ${await updatedChatResponse.clone().text()}`,
+    );
+    assert.equal(
+      (await updatedChatResponse.json()).name,
+      "Updated Reaction Regression Chat",
+    );
+    const regeneratedCodeResponse = await request(
+      `/chats/${testChat.id}/regenerate-code`,
+      { method: "POST", headers },
+    );
+    assert.equal(
+      regeneratedCodeResponse.status,
+      200,
+      `chat invite-code rotation failed: ${await regeneratedCodeResponse.clone().text()}`,
+    );
+    const messageResponse = await request(`/chats/${testChat.id}/messages`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ text: "Reaction regression test" }),
+    });
+    assert.equal(messageResponse.status, 201, "members should create a test message");
+    const testMessage = await messageResponse.json();
+    const invalidReaction = await request(
+      `/chats/${testChat.id}/messages/${testMessage.id}/react`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ emoji: '<img src=x onerror="alert(1)">' }),
+      },
+    );
+    assert.equal(invalidReaction.status, 400, "HTML-like reactions must be rejected");
+    const unchangedMessagesResponse = await request(
+      `/chats/${testChat.id}/messages`,
+      { headers },
+    );
+    const unchangedMessages = await unchangedMessagesResponse.json();
+    assert.deepEqual(
+      unchangedMessages.find((message) => message.id === testMessage.id).reactions,
+      {},
+      "rejected reactions must not be stored",
+    );
+    for (const emoji of ["👍", "❤️", "😂", "😮", "😢", "🙏"]) {
+      const validReaction = await request(
+        `/chats/${testChat.id}/messages/${testMessage.id}/react`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ emoji }),
+        },
+      );
+      assert.equal(validReaction.status, 200, `${emoji} should remain a supported reaction`);
+    }
+    const deletedChatResponse = await request(`/chats/${testChat.id}`, {
+      method: "DELETE",
+      headers,
+    });
+    assert.equal(
+      deletedChatResponse.status,
+      204,
+      `chat deletion failed: ${await deletedChatResponse.clone().text()}`,
+    );
+    const chatAuditResponse = await request(
+      "/audit-logs?page=1&limit=100",
+      { headers },
+    );
+    assert.equal(
+      chatAuditResponse.status,
+      200,
+      `chat audit lookup failed: ${await chatAuditResponse.clone().text()}`,
+    );
+    const chatAuditPage = await chatAuditResponse.json();
+    assert.deepEqual(
+      chatAuditPage.data
+        .filter((event) => event.entityId === testChat.id)
+        .map((event) => event.action)
+        .sort(),
+      [
+        "CHAT_CREATED",
+        "CHAT_DELETED",
+        "CHAT_INVITE_CODE_REGENERATED",
+        "CHAT_UPDATED",
+      ].sort(),
+      "chat creation, changes, invite rotation, and deletion should be auditable",
+    );
+
     const throttledLoginHeaders = {
       "Content-Type": "application/json",
       "X-Forwarded-For": "203.0.113.10",
@@ -914,7 +1582,7 @@ async function run() {
         method: "POST",
         headers: throttledLoginHeaders,
         body: JSON.stringify({
-          email: "smoke@example.test",
+          email: accountEmail,
           password: "incorrect-password-value",
         }),
       });
@@ -924,7 +1592,7 @@ async function run() {
       method: "POST",
       headers: throttledLoginHeaders,
       body: JSON.stringify({
-        email: "smoke@example.test",
+        email: accountEmail,
         password: "incorrect-password-value",
       }),
     });
@@ -940,10 +1608,18 @@ async function run() {
 
     console.log("API smoke tests passed");
   } finally {
+    if (realtimeSocket && realtimeSocket.readyState !== WebSocket.CLOSED) {
+      realtimeSocket.terminate();
+    }
     try {
-      await stopServer(server);
+      if (server) await stopServer(server);
     } finally {
-      fs.rmSync(databasePath, { force: true });
+      fs.rmSync(tempDirectory, {
+        recursive: true,
+        force: true,
+        maxRetries: 20,
+        retryDelay: 250,
+      });
       if (output && process.env.DEBUG_SMOKE) console.log(output);
     }
   }

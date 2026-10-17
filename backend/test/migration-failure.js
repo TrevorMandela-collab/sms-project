@@ -133,7 +133,7 @@ async function run() {
     ],
   );
   const recoveredVersions = await db.migrate();
-  assert.deepEqual(recoveredVersions, ["001", "002", "003", "004", "005"]);
+  assert.deepEqual(recoveredVersions, ["001", "002", "003", "004", "005", "006", "007", "008"]);
   assert.equal((await db.findById("schools", "valid-school")).name, "Valid Before Invalid");
   assert.equal((await db.all("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'store'")).length, 0);
   console.log("Migration failure recovery tests passed");

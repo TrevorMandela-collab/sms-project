@@ -146,7 +146,7 @@ async function run() {
     );
   }
   const versions = await db.migrate();
-  assert.deepEqual(versions, ["001", "002", "003", "004", "005"]);
+  assert.deepEqual(versions, ["001", "002", "003", "004", "005", "006", "007", "008"]);
   for (const [collection, count] of Object.entries(expectedCounts)) {
     const table = mappings[collection].table;
     const result = await db.all(`SELECT COUNT(*) AS count FROM ${table}`);
@@ -245,7 +245,7 @@ async function run() {
   assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM teacher_assignments"))[0].count), 1);
   assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM class_subjects"))[0].count), 1);
   assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM chat_members"))[0].count), 1);
-  assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM schema_migrations"))[0].count), 5);
+  assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM schema_migrations"))[0].count), 8);
   assert.equal((await db.findChatByInviteCode("school-1", "chat-code")).id, "chat-1");
   assert.equal((await db.readByChatId("chat-1")).length, 1);
   console.log("[database] migration, relational reads, and constraints passed");

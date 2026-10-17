@@ -1,8 +1,42 @@
 const express = require("express");
 const db = require("../utils/db");
-const { requireAuth, requireRole } = require("../middleware/auth");
+const {
+  requireAuth,
+  requireRole,
+  requirePlatformAdmin,
+} = require("../middleware/auth");
 
 const router = express.Router();
+
+router.get(
+  "/platform",
+  requireAuth,
+  requirePlatformAdmin,
+  async (req, res, next) => {
+    const page = Number.parseInt(req.query.page || "1", 10);
+    const limit = Number.parseInt(req.query.limit || "25", 10);
+    if (
+      !Number.isInteger(page) ||
+      page < 1 ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 100
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: "INVALID_PAGINATION",
+          message: "Page must be positive and limit must be between 1 and 100.",
+        },
+      });
+    }
+    try {
+      return res.json(await db.listPlatformAuditLogs({ page, limit }));
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
 
 router.get("/", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {

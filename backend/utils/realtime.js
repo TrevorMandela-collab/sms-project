@@ -11,6 +11,8 @@
 const { WebSocketServer } = require('ws');
 const jwt = require('jsonwebtoken');
 const db = require('./db');
+const { isSchoolAdmin } = require('./roles');
+const { isSchoolSuspended } = require('./schoolStatus');
 const { jwtSecret: JWT_SECRET } = require('../config');
 
 const CHATS = 'chats';
@@ -20,6 +22,27 @@ const CHATS = 'chats';
 // currently viewing (set via a { type: 'join' } message from the
 // client, cleared via { type: 'leave' }).
 const clients = new Set();
+
+async function refreshSocketUser(ws) {
+  const storedUser = await db.findById('users', ws.authPayload.id);
+  if (
+    !storedUser ||
+    (storedUser.status && storedUser.status !== 'active') ||
+    (ws.authPayload.tokenVersion || 0) !== (storedUser.tokenVersion || 0)
+  ) {
+    clients.delete(ws);
+    ws.close(4001, 'Invalid or expired session');
+    return null;
+  }
+  if (await isSchoolSuspended(storedUser)) {
+    clients.delete(ws);
+    ws.close(4003, 'School access suspended');
+    return null;
+  }
+  const { passwordHash, ...safeUser } = storedUser;
+  ws.user = safeUser;
+  return safeUser;
+}
 
 function initRealtime(server) {
   const wss = new WebSocketServer({ server, path: '/ws' });
@@ -35,26 +58,17 @@ function initRealtime(server) {
       return;
     }
 
+    ws.authPayload = payload;
     let user;
     try {
-      const storedUser = await db.findById('users', payload.id);
-      if (
-        !storedUser ||
-        (storedUser.status && storedUser.status !== 'active') ||
-        (payload.tokenVersion || 0) !== (storedUser.tokenVersion || 0)
-      ) {
-        ws.close(4001, 'Invalid or expired session');
-        return;
-      }
-      const { passwordHash, ...safeUser } = storedUser;
-      user = safeUser;
+      user = await refreshSocketUser(ws);
+      if (!user) return;
     } catch (error) {
       console.error('[realtime] connection authentication failed:', error);
       ws.close(1011, 'Unable to authenticate');
       return;
     }
 
-    ws.user = user;
     ws.chatId = null;
     ws.isAlive = true;
     clients.add(ws);
@@ -71,10 +85,12 @@ function initRealtime(server) {
 
       if (msg.type === 'join' && msg.chatId) {
         try {
+          user = await refreshSocketUser(ws);
+          if (!user) return;
           const chat = await db.findById(CHATS, msg.chatId);
           const allowed = chat &&
             chat.schoolId === user.schoolId &&
-            (user.role === 'admin' || (chat.memberIds || []).includes(user.id));
+            (isSchoolAdmin(user) || (chat.memberIds || []).includes(user.id));
           ws.chatId = allowed ? msg.chatId : null;
         } catch {
           ws.chatId = null;
@@ -99,6 +115,11 @@ function initRealtime(server) {
       }
       ws.isAlive = false;
       ws.ping();
+      refreshSocketUser(ws).catch((error) => {
+        console.error('[realtime] session revalidation failed:', error);
+        clients.delete(ws);
+        ws.close(1011, 'Unable to revalidate session');
+      });
     });
   }, 30000);
 
@@ -115,13 +136,32 @@ function initRealtime(server) {
  * Tell every client currently viewing `chatId` that something in that
  * chat's thread changed, so they should re-fetch it.
  */
-function broadcastToChat(chatId, payload) {
-  const data = JSON.stringify(payload);
-  clients.forEach(ws => {
-    if (ws.chatId === chatId && ws.readyState === ws.OPEN) {
-      ws.send(data);
+async function broadcastToChat(chatId, payload) {
+  try {
+    const chat = await db.findById(CHATS, chatId);
+    const recipients = [...clients].filter(
+      (ws) => ws.chatId === chatId && ws.readyState === ws.OPEN,
+    );
+    for (const ws of recipients) {
+      try {
+        const user = await refreshSocketUser(ws);
+        if (!user) continue;
+        const canAccess = chat
+          ? chat.schoolId === user.schoolId &&
+            (isSchoolAdmin(user) || (chat.memberIds || []).includes(user.id))
+          : false;
+        if (canAccess || (!chat && user.schoolId === ws.user.schoolId)) {
+          ws.send(JSON.stringify(payload));
+        }
+        if (!canAccess) ws.chatId = null;
+      } catch (error) {
+        console.error('[realtime] chat broadcast authorization failed:', error);
+        ws.chatId = null;
+      }
     }
-  });
+  } catch (error) {
+    console.error('[realtime] chat broadcast lookup failed:', error);
+  }
 }
 
 module.exports = { initRealtime, broadcastToChat };

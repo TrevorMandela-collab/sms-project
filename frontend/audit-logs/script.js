@@ -100,7 +100,7 @@ document.getElementById("resetFilters").addEventListener("click", () => {
   loadAuditLogs(1);
 });
 
-if (!SmsAuth.hasRole("admin")) {
+if (!SmsAuth.hasRole("admin", "school_admin")) {
   window.location.replace(SmsAuth.homeUrlForRole(SmsAuth.getUser()?.role));
 } else {
   loadAuditLogs();

@@ -1,6 +1,9 @@
 const createCrudRouter = require('../utils/crudRouterFactory');
 const db = require('../utils/db');
-const { getTeacherClassNames } = require('../utils/teacherScope');
+const {
+  getTeacherClassNames,
+  getTeacherClassIds,
+} = require('../utils/teacherScope');
 
 // Each timetable entry: { id, className, day, period, subject, teacherId, startTime, endTime }
 // Timetable entries carry className directly (a free-text match to

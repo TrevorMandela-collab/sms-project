@@ -1,0 +1,455 @@
+.platform-shell {
+  background: #f5f7fa;
+}
+
+.platform-role-label {
+  padding: 7px 11px;
+  border: 1px solid #d8e2ec;
+  border-radius: 999px;
+  background: #eff4fa;
+  color: #314b69;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.platform-workspace {
+  max-width: 1500px;
+  margin: 0 auto;
+}
+
+.platform-mark {
+  color: #6384b1;
+  font-size: 1rem;
+}
+
+.platform-session {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 13px;
+  border: 1px solid #dce6f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #526577;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.platform-session-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4b9a7e;
+  box-shadow: 0 0 0 3px #e5f3ed;
+}
+
+.platform-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 28px 0;
+}
+
+.platform-stat {
+  min-height: 132px;
+  padding: 21px 22px;
+  border: 1px solid #e0e6ed;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(28, 44, 62, 0.045);
+}
+
+.platform-stat span,
+.platform-stat small {
+  display: block;
+  color: #68798b;
+  font-size: 0.76rem;
+}
+
+.platform-stat strong {
+  display: block;
+  margin: 10px 0 6px;
+  color: #17283d;
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  letter-spacing: -0.04em;
+}
+
+.platform-stat--accent {
+  border-color: #d9e3f0;
+  background: linear-gradient(135deg, #24364e, #18263b);
+}
+
+.platform-stat--accent span,
+.platform-stat--accent small,
+.platform-stat--accent strong {
+  color: #f3f6fb;
+}
+
+.platform-panel {
+  margin: 0 0 20px;
+  padding: 23px;
+  border: 1px solid #e0e6ed;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(28, 44, 62, 0.045);
+}
+
+.platform-panel-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 20px;
+}
+
+.platform-panel-heading .section-kicker {
+  margin: 0 0 5px;
+  color: #728196;
+}
+
+.platform-panel-heading h2,
+.platform-admin-provision h3 {
+  margin: 0;
+  color: #1c2d41;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+}
+
+.platform-create-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 14px;
+  max-width: 740px;
+}
+
+.platform-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.platform-field label,
+.platform-search-label {
+  color: #3b4c60;
+  font-size: 0.77rem;
+  font-weight: 700;
+}
+
+.platform-field input,
+.platform-field select,
+.platform-directory-tools input {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid #d7e0e8;
+  border-radius: 7px;
+  outline: none;
+  background: #fff;
+  color: #17283d;
+  font-size: 0.84rem;
+}
+
+.platform-field input:focus-visible,
+.platform-field select:focus-visible,
+.platform-directory-tools input:focus-visible {
+  border-color: #587ca7;
+  box-shadow: 0 0 0 3px rgba(88, 124, 167, 0.17);
+}
+
+.platform-field input[type="color"] {
+  width: 64px;
+  padding: 4px;
+}
+
+.platform-field small {
+  color: #728196;
+  font-size: 0.7rem;
+}
+
+.platform-button {
+  min-height: 40px;
+  padding: 9px 14px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.platform-button:focus-visible {
+  outline: 3px solid rgba(88, 124, 167, 0.35);
+  outline-offset: 2px;
+}
+
+.platform-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.platform-button--primary {
+  background: #2c4768;
+  color: #fff;
+}
+
+.platform-button--primary:hover:not(:disabled) {
+  background: #203754;
+}
+
+.platform-button--quiet {
+  border-color: #dce4ec;
+  background: #fff;
+  color: #334b66;
+}
+
+.platform-button--quiet:hover:not(:disabled) {
+  border-color: #aebed0;
+  background: #f4f7fa;
+}
+
+.platform-directory-heading {
+  align-items: flex-end;
+}
+
+.platform-directory-tools {
+  display: grid;
+  grid-template-columns: minmax(170px, 240px) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.platform-search-label {
+  grid-column: 1 / -1;
+}
+
+.platform-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.platform-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.platform-table th {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e5eaf0;
+  color: #718095;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.platform-table td {
+  padding: 14px 12px;
+  border-bottom: 1px solid #edf0f4;
+  color: #435469;
+  font-size: 0.8rem;
+  vertical-align: middle;
+}
+
+.platform-table td:first-child strong,
+.platform-school-id {
+  display: block;
+}
+
+.platform-table td:first-child strong {
+  color: #1c2d41;
+  font-size: 0.84rem;
+}
+
+.platform-school-id {
+  margin-top: 4px;
+  color: #8391a1;
+  font-size: 0.65rem;
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  overflow-wrap: anywhere;
+}
+
+.platform-status {
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.platform-status--ready {
+  color: #337656 !important;
+}
+
+.platform-status--pending {
+  color: #966321 !important;
+}
+
+.platform-status--suspended {
+  color: #a54141 !important;
+}
+
+.platform-row-action {
+  text-align: right;
+}
+
+.platform-table-state,
+.platform-empty {
+  padding: 24px 12px !important;
+  color: #778698 !important;
+  text-align: center;
+}
+
+.platform-empty {
+  margin: 0;
+}
+
+.platform-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 15px;
+  color: #69798c;
+  font-size: 0.75rem;
+}
+
+.platform-pagination span {
+  margin-right: auto;
+}
+
+.platform-settings-form,
+.platform-admin-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.platform-form-actions {
+  grid-column: 1 / -1;
+}
+
+.platform-admin-provision {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(300px, 1.2fr);
+  gap: 28px;
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid #e8edf2;
+}
+
+.platform-admin-provision p:not(.section-kicker) {
+  max-width: 420px;
+  color: #69798c;
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.platform-admin-form .platform-button {
+  justify-self: start;
+}
+
+.platform-error {
+  margin: 18px 0 0;
+  padding: 12px 14px;
+  border: 1px solid #efc7c4;
+  border-radius: 8px;
+  background: #fff3f1;
+  color: #9c3b34;
+  font-size: 0.82rem;
+}
+
+.platform-toast {
+  position: fixed;
+  z-index: 50;
+  right: 22px;
+  bottom: 22px;
+  max-width: min(420px, calc(100vw - 36px));
+  padding: 12px 16px;
+  border: 1px solid #cfe2d7;
+  border-radius: 9px;
+  background: #edf7f0;
+  color: #285b3c;
+  box-shadow: 0 12px 32px rgba(20, 40, 30, 0.12);
+  font-size: 0.82rem;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.platform-toast.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 800px) {
+  .platform-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .platform-admin-provision {
+    grid-template-columns: 1fr;
+  }
+
+  .platform-directory-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .platform-directory-tools {
+    width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .platform-workspace {
+    padding: 20px 14px 34px;
+  }
+
+  .platform-stats,
+  .platform-settings-form,
+  .platform-admin-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .platform-panel {
+    padding: 17px;
+  }
+
+  .platform-create-form {
+    grid-template-columns: 1fr;
+  }
+
+  .platform-directory-tools {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .platform-form-actions {
+    grid-column: auto;
+  }
+
+  .platform-pagination {
+    flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .platform-button,
+  .platform-toast {
+    transition: none;
+  }
+}

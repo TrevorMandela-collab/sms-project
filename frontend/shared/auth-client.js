@@ -7,7 +7,7 @@
    and surfaces API errors consistently.
 ========================================================= */
 
-const DEFAULT_SMS_API_BASE = "https://sms-project-c8e2.onrender.com/api";
+const DEFAULT_SMS_API_BASE = "http://localhost:4000/api";
 const TOKEN_KEY = "sms_token";
 const USER_KEY = "sms_user";
 const API_BASE_KEY = "sms_api_base";
@@ -62,6 +62,7 @@ const SmsAuth = {
    * module page, since every module folder sits one level deep).
    */
   homeUrlForRole(role) {
+    if (role === "super_admin") return "../platform/index.html";
     if (role === "student") return "../student-portal/index.html";
     if (role === "parent") return "../parent-portal/index.html";
     return "../dashboard/index.html";

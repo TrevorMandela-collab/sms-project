@@ -54,7 +54,7 @@ function populateTeacherSelect() {
 function renderGrid() {
   const grid = document.getElementById('timetableGrid');
   const user = SmsAuth.getUser();
-  const canManage = user && user.role === 'admin';
+  const canManage = user && ['admin', 'school_admin'].includes(user.role);
 
   if (isLoading) {
     grid.innerHTML = `<div class="loading-state">Loading timetable…</div>`;

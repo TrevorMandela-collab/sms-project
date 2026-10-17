@@ -191,4 +191,21 @@
   .events-search { width: 100%; }
   .event-row { grid-template-columns: 44px minmax(0, 1fr); gap: 10px; }
   .event-actions { grid-column: 2; }
+  .events-filters button { min-height: 44px; }
+}
+@media (max-width: 860px), (max-height: 500px) {
+  .event-dialog input:not([type="hidden"]),
+  .event-dialog textarea,
+  .event-form-actions button { min-height: 44px; }
+}
+@media (max-height: 500px) {
+  .event-modal {
+    align-items: start;
+    overflow-y: auto;
+  }
+  .event-dialog {
+    max-height: calc(100vh - 32px);
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
+  }
 }

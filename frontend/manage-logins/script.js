@@ -11,7 +11,7 @@
 /* ---------- Admin-only guard ---------- */
 (function () {
   const user = SmsAuth.getUser();
-  if (!user || user.role !== 'admin') {
+  if (!user || !['admin', 'school_admin'].includes(user.role)) {
     window.location.href = SmsAuth.homeUrlForRole(user ? user.role : null);
   }
 })();

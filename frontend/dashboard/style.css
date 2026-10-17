@@ -43,6 +43,21 @@ button {
   min-height: 100vh;
   display: flex;
 }
+
+.dashboard-load-warning {
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  border: 1px solid #e8c995;
+  border-radius: 8px;
+  background: #fff7e9;
+  color: #80591f;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.dashboard-load-warning[hidden] {
+  display: none;
+}
 .command-sidebar {
   width: 248px;
   flex: 0 0 248px;
@@ -125,32 +140,51 @@ button {
 .nav-item {
   display: flex;
   align-items: center;
+  width: 100%;
   gap: 9px;
-  min-height: 31px;
-  padding: 6px 12px;
+  min-height: 40px;
+  padding: 9px 12px;
   color: var(--sidebar-muted);
-  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
   text-decoration: none;
   font-size: 0.78rem;
-  font-weight: 500;
+  font-weight: 600;
   transition:
     color 0.16s ease,
-    background 0.16s ease;
+    background 0.16s ease,
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
 }
 .nav-item:hover {
   color: #fff;
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(155, 197, 192, 0.26);
+  transform: translateX(2px);
+  box-shadow: 0 8px 18px rgba(10, 18, 26, 0.16);
 }
 .nav-item.is-active {
   color: #fff;
-  background: rgba(201, 230, 223, 0.13);
-  box-shadow: inset 3px 0 var(--accent);
+  background: linear-gradient(135deg, rgba(201, 230, 223, 0.2), rgba(35, 124, 120, 0.15));
+  border-color: rgba(155, 197, 192, 0.38);
+  box-shadow: inset 3px 0 var(--accent), 0 12px 22px rgba(0, 0, 0, 0.14);
 }
 .nav-icon {
   width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 6px;
+  background: rgba(155, 197, 192, 0.12);
   color: #9bc5c0;
-  font-size: 1rem;
+  font-size: 0.8rem;
   text-align: center;
+}
+.nav-item.is-active .nav-icon {
+  background: rgba(201, 230, 223, 0.18);
+  color: #e6f8f4;
 }
 .sidebar-profile {
   display: flex;
@@ -1330,36 +1364,6 @@ button {
   }
 }
 @media (max-width: 860px) {
-  #sidebarSlot {
-    position: fixed;
-    z-index: 35;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    width: 248px;
-    height: 100vh;
-    min-height: 100vh;
-    flex-basis: 248px;
-    flex-direction: column;
-    align-items: stretch;
-    overflow: visible;
-    transform: translateX(-100%);
-    box-shadow: 12px 0 30px rgba(10, 25, 35, 0.15);
-  }
-  #sidebarSlot.is-mobile-open { transform: translateX(0); }
-  #sidebarSlot .sidebar-nav { flex-direction: column; }
-  .command-sidebar {
-    position: fixed;
-    z-index: 35;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    transform: translateX(-100%);
-    box-shadow: 12px 0 30px rgba(10, 25, 35, 0.15);
-  }
-  .command-sidebar.is-mobile-open {
-    transform: translateX(0);
-  }
   .dashboard-main {
     width: 100%;
   }
@@ -1423,7 +1427,16 @@ button {
   .priority-grid,
   .analytics-grid,
   .lower-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dashboard-main,
+  .workspace,
+  .analytics-grid,
+  .lower-grid,
+  .analytics-grid > .panel,
+  .lower-grid > .panel {
+    min-width: 0;
+    max-width: 100%;
   }
   .finance-panel,
   .audit-panel {
@@ -1657,5 +1670,48 @@ button {
   .quick-action:hover,
   .attention-item:hover {
     transform: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .mobile-menu {
+    display: grid;
+    place-items: center;
+    flex: 0 0 44px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+
+  .icon-action {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .top-profile {
+    min-height: 44px;
+  }
+
+  .chart-wrap,
+  .mini-bar-chart,
+  .finance-chart {
+    position: relative;
+    min-width: 0;
+  }
+
+  .chart-wrap canvas,
+  .mini-bar-chart canvas,
+  .finance-chart canvas {
+    max-width: 100%;
+  }
+
+  .notification-panel {
+    top: calc(var(--mandela-dev-strip-height, 0px) + 72px);
+    right: 16px;
+    left: 16px;
+    width: auto;
+    max-width: 420px;
   }
 }

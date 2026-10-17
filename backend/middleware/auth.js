@@ -1,6 +1,12 @@
 const jwt = require("jsonwebtoken");
 const db = require("../utils/db");
 const { jwtSecret: JWT_SECRET } = require("../config");
+const {
+  requireRole,
+  requirePlatformAdmin,
+  isSchoolAdmin,
+} = require("../utils/roles");
+const { isSchoolSuspended } = require("../utils/schoolStatus");
 
 const USERS_COLLECTION = "users";
 
@@ -58,6 +64,12 @@ async function requireAuth(req, res, next) {
         error: "This account is not active. Contact your school admin.",
       });
     }
+    if (await isSchoolSuspended(authenticatedUser)) {
+      return res.status(403).json({
+        error: "This school is suspended. Contact your platform administrator.",
+        code: "SCHOOL_SUSPENDED",
+      });
+    }
   } catch (err) {
     console.error("[auth] suspension check failed:", err);
     return res
@@ -68,26 +80,6 @@ async function requireAuth(req, res, next) {
   const { passwordHash, ...safeUser } = authenticatedUser;
   req.user = safeUser;
   next();
-}
-
-/**
- * Restricts a route to specific roles.
- * Usage: requireRole('admin', 'teacher')
- */
-function requireRole(...allowedRoles) {
-  return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({ error: "Not authenticated." });
-    }
-    if (!allowedRoles.includes(req.user.role)) {
-      return res
-        .status(403)
-        .json({
-          error: `This action requires one of these roles: ${allowedRoles.join(", ")}.`,
-        });
-    }
-    next();
-  };
 }
 
 function signToken(user) {
@@ -110,4 +102,11 @@ function signToken(user) {
   );
 }
 
-module.exports = { requireAuth, requireRole, signToken, JWT_SECRET };
+module.exports = {
+  requireAuth,
+  requireRole,
+  requirePlatformAdmin,
+  isSchoolAdmin,
+  signToken,
+  JWT_SECRET,
+};

@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <title>Platform | Mandela SMS</title>
+    <link rel="stylesheet" href="../shared/theme.css" />
+    <link rel="stylesheet" href="../dashboard/style.css" />
+    <link rel="stylesheet" href="style.css" />
+    <script defer src="../shared/auth-client.js"></script>
+    <script defer src="../shared/auth-guard.js"></script>
+    <script defer src="../shared/sidebar.js"></script>
+    <script defer src="script.js"></script>
+  </head>
+  <body>
+    <div class="dashboard-shell platform-shell">
+      <aside class="command-sidebar" id="sidebarSlot" aria-label="Primary navigation"></aside>
+      <main class="dashboard-main">
+        <header class="topbar">
+          <button class="mobile-menu" id="mobileMenu" type="button" aria-label="Open navigation">☰</button>
+          <div class="breadcrumb"><span>Mandela SMS</span><b>/</b><strong>Platform</strong></div>
+          <div class="topbar-actions">
+            <span class="platform-role-label">Super Admin</span>
+          </div>
+        </header>
+
+        <section class="workspace platform-workspace" aria-labelledby="platformTitle">
+          <div class="page-intro">
+            <div>
+              <p class="eyebrow"><span class="platform-mark" aria-hidden="true">◈</span> Platform command center</p>
+              <h1 id="platformTitle">School network</h1>
+              <p>Manage schools and their first School Admin accounts.</p>
+            </div>
+            <div class="platform-session">
+              <span class="platform-session-dot" aria-hidden="true"></span>
+              <span>Platform access active</span>
+            </div>
+          </div>
+
+          <div class="platform-error" id="platformError" role="alert" hidden></div>
+          <div class="platform-toast" id="platformToast" role="status" aria-live="polite"></div>
+
+          <section class="platform-stats" aria-label="Platform summary">
+            <article class="platform-stat">
+              <span>Schools</span>
+              <strong id="schoolCount">—</strong>
+              <small>Available in the platform directory</small>
+            </article>
+            <article class="platform-stat">
+              <span>Setup in progress</span>
+              <strong id="setupCount">—</strong>
+              <small>Schools still completing onboarding</small>
+            </article>
+            <article class="platform-stat platform-stat--accent">
+              <span>Access scope</span>
+              <strong>Platform</strong>
+              <small>Actions are restricted to Super Admin</small>
+            </article>
+          </section>
+
+          <section class="platform-panel" aria-labelledby="createSchoolTitle">
+            <div class="platform-panel-heading">
+              <div>
+                <p class="section-kicker">Add to network</p>
+                <h2 id="createSchoolTitle">Create a school</h2>
+              </div>
+            </div>
+            <form id="createSchoolForm" class="platform-create-form">
+              <div class="platform-field">
+                <label for="newSchoolName">School name</label>
+                <input id="newSchoolName" name="name" maxlength="160" required autocomplete="organization" />
+              </div>
+              <button class="platform-button platform-button--primary" type="submit">Create school</button>
+            </form>
+          </section>
+
+          <section class="platform-panel" aria-labelledby="directoryTitle">
+            <div class="platform-panel-heading platform-directory-heading">
+              <div>
+                <p class="section-kicker">Network directory</p>
+                <h2 id="directoryTitle">Schools</h2>
+              </div>
+              <div class="platform-directory-tools">
+                <label class="platform-search-label" for="schoolSearch">Filter schools</label>
+                <input id="schoolSearch" type="search" placeholder="Search by name" autocomplete="off" />
+                <button class="platform-button platform-button--quiet" id="exportSchools" type="button">Export CSV</button>
+              </div>
+            </div>
+            <div class="platform-table-wrap">
+              <table class="platform-table">
+                <thead>
+                  <tr><th scope="col">School</th><th scope="col">Lifecycle / setup</th><th scope="col">Created</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr>
+                </thead>
+                <tbody id="schoolRows">
+                  <tr><td colspan="4" class="platform-table-state">Loading school directory…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="platform-empty" id="schoolEmpty" hidden>No schools match this search.</p>
+            <nav class="platform-pagination" id="schoolPagination" aria-label="School directory pages"></nav>
+          </section>
+
+          <section class="platform-panel" aria-labelledby="platformAuditTitle">
+            <div class="platform-panel-heading">
+              <div>
+                <p class="section-kicker">Security activity</p>
+                <h2 id="platformAuditTitle">Recent platform audit events</h2>
+              </div>
+            </div>
+            <p class="platform-table-state" id="platformAuditState" role="status" aria-live="polite">Loading platform activity…</p>
+            <div class="platform-table-wrap">
+              <table class="platform-table">
+                <thead>
+                  <tr><th scope="col">Action</th><th scope="col">Record</th><th scope="col">School ID</th><th scope="col">Time</th></tr>
+                </thead>
+                <tbody id="platformAuditRows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="platform-panel" id="schoolDetails" aria-labelledby="schoolDetailsTitle" hidden>
+            <div class="platform-panel-heading">
+              <div>
+                <p class="section-kicker">Selected school</p>
+                <h2 id="schoolDetailsTitle">School details</h2>
+              </div>
+              <button class="platform-button platform-button--quiet" id="closeSchoolDetails" type="button">Close</button>
+            </div>
+            <form id="schoolSettingsForm" class="platform-settings-form">
+              <input type="hidden" name="schoolId" id="selectedSchoolId" />
+              <div class="platform-field">
+                <label for="schoolName">School name</label>
+                <input id="schoolName" name="name" maxlength="160" required />
+              </div>
+              <div class="platform-field">
+                <label for="schoolType">School type</label>
+                <input id="schoolType" name="schoolType" maxlength="80" />
+              </div>
+              <div class="platform-field">
+                <label for="schoolEmail">Contact email</label>
+                <input id="schoolEmail" name="email" type="email" maxlength="254" />
+              </div>
+              <div class="platform-field">
+                <label for="schoolPhone">Contact phone</label>
+                <input id="schoolPhone" name="phone" maxlength="40" />
+              </div>
+              <div class="platform-field">
+                <label for="schoolAddress">Address</label>
+                <input id="schoolAddress" name="address" maxlength="240" />
+              </div>
+              <div class="platform-field">
+                <label for="schoolAcademicYear">Academic year</label>
+                <input id="schoolAcademicYear" name="academicYear" maxlength="40" />
+              </div>
+              <div class="platform-field">
+                <label for="schoolAccentColor">Brand accent</label>
+                <input id="schoolAccentColor" name="accentColor" type="color" />
+              </div>
+              <div class="platform-field">
+                <label for="schoolLifecycleStatus">School access</label>
+                <select id="schoolLifecycleStatus" name="lifecycleStatus">
+                  <option value="active">Active</option>
+                  <option value="suspended">Suspended</option>
+                </select>
+                <small>Suspended schools cannot sign in or use school services.</small>
+              </div>
+              <div class="platform-form-actions">
+                <button class="platform-button platform-button--primary" type="submit">Save school settings</button>
+              </div>
+            </form>
+
+            <div class="platform-admin-provision">
+              <div>
+                <p class="section-kicker">School access</p>
+                <h3>Provision a School Admin</h3>
+                <p>Create the initial school-scoped administrator. Use a temporary password and ask the user to change it after signing in.</p>
+              </div>
+              <form id="createSchoolAdminForm" class="platform-admin-form">
+                <div class="platform-field">
+                  <label for="adminName">Admin name</label>
+                  <input id="adminName" name="name" maxlength="120" required autocomplete="name" />
+                </div>
+                <div class="platform-field">
+                  <label for="adminEmail">Admin email</label>
+                  <input id="adminEmail" name="email" type="email" maxlength="254" required autocomplete="email" />
+                </div>
+                <div class="platform-field">
+                  <label for="adminPassword">Temporary password</label>
+                  <input id="adminPassword" name="password" type="password" minlength="12" required autocomplete="new-password" />
+                  <small>At least 12 characters. Never reuse a personal password.</small>
+                </div>
+                <button class="platform-button platform-button--primary" type="submit">Create School Admin</button>
+              </form>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

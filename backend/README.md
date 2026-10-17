@@ -54,12 +54,47 @@ The repository CI runs the complete SQLite suite and a PostgreSQL 16
 integration suite against disposable service databases on pushes and pull
 requests.
 
-To seed an empty development database, set `DEMO_SEED_PASSWORD` to a unique
-password of at least 12 characters, then run `npm run seed`. The command only
-runs when `NODE_ENV=development`, refuses partial/conflicting seed data, and
-can be safely run again after the complete demo set has been created.
+### Isolated local demo accounts
 
-Server runs on `http://localhost:4000` by default. Health check:
+The demo seed creates fake accounts for each supported role:
+
+- `platform-admin@mandela.example` — Super Admin, not linked to a school
+- `school-admin@greenvalley.example` — School Admin
+- `admin@greenvalley.example` — legacy-compatible school Admin
+- `teacher@greenvalley.example`, `parent@greenvalley.example`, and
+  `student@greenvalley.example` — school users
+
+On Windows PowerShell, create a dedicated SQLite database under the system
+temporary directory before seeding. If `DEMO_SEED_PASSWORD` is not set, the
+seed generates a cryptographically random password and prints it once after a
+successful seed. Copy it to a local password manager for testing; it is never
+stored in plaintext. To choose your own unique test password instead, set
+`DEMO_SEED_PASSWORD` to a value of at least 12 characters before the seed.
+
+```powershell
+cd "C:\Users\<you>\OneDrive\Documents\sms-project-repo\backend"
+$env:NODE_ENV = "development"
+Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+$demoDirectory = Join-Path $env:TEMP ("mandela-sms-demo-" + [guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $demoDirectory | Out-Null
+$env:SQLITE_PATH = Join-Path $demoDirectory "demo.sqlite"
+Remove-Item Env:DEMO_SEED_PASSWORD -ErrorAction SilentlyContinue
+npm run seed
+# Keep this PowerShell window open and run the local API with the same isolated database:
+npm run dev
+```
+
+The seed refuses to run unless `NODE_ENV=development`, `DATABASE_URL` is
+unset, and `SQLITE_PATH` resolves inside the system temporary directory. It
+does not use the default `backend/data/sms.sqlite` or the QA database. It
+refuses partial/conflicting demo records and safely recognizes a complete
+demo set on reruns. All demo roles share the one local test password. Setting
+`DEMO_SEED_PASSWORD` is optional; if set, it is used for every demo account.
+Do not reuse these credentials or this temporary database for real data.
+
+Server runs on `http://localhost:4000` by default. In non-production it binds
+to `127.0.0.1` unless `HOST` is explicitly configured; production defaults to
+`0.0.0.0` unless overridden. Health check:
 `GET /api/health`. Watch the startup logs for `[db] Connected and schema
 ready.` — if you instead see `[db] FAILED to connect`, `DATABASE_URL` is
 missing or wrong.
@@ -107,7 +142,11 @@ SQLite and PostgreSQL use the same table definitions and data mapping.
 `003_enforce_school_relationships.js` adds tenant-consistency enforcement,
 `004_remove_legacy_store.js` removes the converted source table, and
 `005_guard_school_reassignment.js` protects those relationships from unsafe
-school changes.
+school changes. Migration `006_qa_testing.js` adds owner-scoped QA records,
+`007_platform_admin_roles.js` adds the distinct `school_admin` and
+`super_admin` role codes without changing existing role assignments or school
+IDs, and `008_platform_audit_logs.js` adds a separate platform-wide audit
+stream for Super Admin actions.
 Use the same migration command against development, test, and production
 databases.
 The data layer also exposes atomic `createInvoiceWithItems` and
@@ -138,12 +177,20 @@ records as a rollback strategy.
 
 ## Roles
 
-Four roles: `admin`, `teacher`, `parent`, `student`.
+The school roles are `admin` (retained for compatibility), `school_admin`,
+`teacher`, `parent`, and `student`. `super_admin` is a separate platform
+operator role.
 
 - **The very first account you register becomes the admin automatically**
-  (bootstrap). After that, `POST /api/auth/register` requires an admin's
-  token — only admins can create new accounts.
-- **admin** — full access everywhere.
+-  (school bootstrap); this public bootstrap only creates a school-scoped
+  `admin`. `super_admin` is never accepted by public registration.
+- **admin / school_admin** — school administrator permissions, scoped to the
+  account's own school. Existing `admin` records remain school admins and
+  never gain platform-wide access.
+- **super_admin** — platform-only permission to list, create, read, and update
+  school records through `GET/POST /api/schools/platform` and
+  `GET/PATCH /api/schools/platform/:id`. This role does not satisfy school
+  administrator route checks.
 - **teacher** — can create/edit attendance, exams, and announcements; can
   read (but not delete) most things; cannot delete students or manage fees.
 - **parent** — read-only, and automatically scoped to their own children.
@@ -160,9 +207,24 @@ Four roles: `admin`, `teacher`, `parent`, `student`.
 
 School-owned CRUD and account-management requests are scoped on the server to
 the authenticated account's current `schoolId`. Role and school claims are
-refreshed from the database for each API request. The system still has only
-these four roles; granular permissions and the additional school roles remain
-future work.
+refreshed from the database for each API request. School IDs are generated
+server-side and are not changed by platform school updates.
+
+Provision a platform operator only from an interactive operator shell with
+access to the intended configured database. `npm run provision:super-admin`
+requires `DATABASE_URL` or an explicit `SQLITE_PATH`, applies pending
+migrations, prompts for a name/email and a hidden password (12–72 UTF-8
+bytes), and creates a `super_admin` with no school association. It does not
+accept role, school ID, or credentials as command-line arguments or create an
+account through the public bootstrap. Protect the database configuration and
+operator shell as privileged access; never put a password in source control.
+Super Admins can create schools, change school settings or lifecycle status, and
+provision an initial school-scoped administrator through the platform API.
+School lifecycle status is stored in the existing school settings JSON;
+suspended schools cannot sign in or use authenticated APIs, and active WebSocket
+sessions are revalidated. School administrators can update their own school's
+details through `/api/schools/me`; those changes are written to the school's
+audit log.
 
 ## Auth flow
 
@@ -174,7 +236,9 @@ POST /api/auth/logout              (invalidates all account sessions)
 POST /api/auth/password/change     { currentPassword, newPassword }
 POST /api/auth/forgot-password    { email }
 POST /api/auth/reset-password     { token, password }
+PATCH /api/auth/me                { name?, email? } (updates only the authenticated account)
 GET  /api/audit-logs?page=1&limit=25&action=&entityType=&from=&to= (school admin only)
+GET  /api/audit-logs/platform?page=1&limit=25 (Super Admin only)
 GET  /api/auth/me                  (requires Bearer token)
 ```
 
@@ -183,14 +247,19 @@ Every other route requires `Authorization: Bearer <token>`.
 New passwords must be at least 12 characters and fit bcrypt's 72-byte input
 limit. Reset tokens are stored only as SHA-256 hashes, expire after 30 minutes,
 and can be used once. Production reset messages use SMTP, and the API returns
-the same generic response whether or not the email exists. Development/test
-responses include the reset token only when SMTP is not configured.
+the same generic response whether or not the email exists. The forgot-password
+API never returns reset tokens; reset links are delivered only through the
+configured email provider.
 Authentication endpoints are rate limited per client IP.
 
 Successful generic CRUD creates, updates, and deletes, account lifecycle
 changes, sign-ins/outs, password changes/resets, and account creation are
 recorded in `audit-logs`. The school-admin endpoint supports action, entity,
 date-range, and pagination filters; it does not expose other schools' events.
+Platform-level Super Admin events use the separately authorized
+`platform_audit_logs` stream, exposed only through the platform audit endpoint.
+Profile updates record changed field names without copying personal field
+values into audit metadata.
 
 ## Student invite codes
 

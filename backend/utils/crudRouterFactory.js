@@ -2,6 +2,7 @@ const express = require("express");
 const crypto = require("crypto");
 const db = require("./db");
 const { requireAuth, requireRole } = require("../middleware/auth");
+const { isSchoolAdmin } = require("./roles");
 const { recordAuditEvent } = require("./auditLog");
 
 /**
@@ -150,7 +151,7 @@ function createCrudRouter(collection, options = {}) {
     requireRole(...permissions.read),
     safe(async (req, res) => {
       if (
-        req.user.role === "admin" &&
+        isSchoolAdmin(req.user) &&
         (req.query.page !== undefined || req.query.limit !== undefined)
       ) {
         const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);

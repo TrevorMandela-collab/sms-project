@@ -7,11 +7,24 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
+      rel="preload"
+      as="style"
       href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap"
-      rel="stylesheet"
+      onload="this.onload=null;this.rel='stylesheet'"
     />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap"
+      />
+    </noscript>
     <link rel="stylesheet" href="../shared/theme.css" />
     <link rel="stylesheet" href="style.css" />
+    <script defer src="../shared/auth-client.js"></script>
+    <script defer src="../shared/auth-guard.js"></script>
+    <script defer src="../shared/sidebar.js"></script>
+    <script defer src="../shared/vendor/chart.umd.js"></script>
+    <script defer src="script.js"></script>
   </head>
   <body>
     <div class="dashboard-shell">
@@ -118,21 +131,6 @@
             >
           </div>
         </nav>
-        <div class="sidebar-profile">
-          <span class="profile-avatar" id="sidebarAvatar">AD</span>
-          <span class="profile-copy"
-            ><strong id="sidebarName">Admin</strong
-            ><small>Administrator</small></span
-          >
-          <button
-            class="profile-more"
-            id="sidebarProfileButton"
-            type="button"
-            aria-label="Open profile menu"
-          >
-            •••
-          </button>
-        </div>
       </aside>
 
       <main class="dashboard-main">
@@ -168,32 +166,21 @@
             >
               <span>♢</span><i id="notificationCount">0</i>
             </button>
-            <button class="top-profile" id="topProfile" type="button">
-              <span class="profile-avatar profile-avatar--small" id="topAvatar"
-                >AD</span
-              ><span
-                ><strong id="topName">Admin</strong
-                ><small>Administrator</small></span
-              ><b>⌄</b>
-            </button>
-            <div class="profile-menu" id="profileMenu">
-              <a href="#profile">My profile</a
-              ><a href="#settings">School settings</a
-              ><button type="button" id="topLogout">Log out</button>
-            </div>
           </div>
         </header>
 
         <section class="workspace" aria-labelledby="pageTitle">
+          <div class="dashboard-load-warning" id="dashboardLoadWarning" role="alert" hidden></div>
           <div class="page-intro">
             <div>
               <p class="eyebrow">
                 <span id="schoolNameLabel">Mandela SMS</span> ·
                 <span id="dashboardDate"></span> <span class="live-dot"></span>
-                Live overview
+                School overview
               </p>
               <h1 id="pageTitle">
-                Good morning, <span id="greetingName">Admin</span>
+                <span id="greetingPrefix">Welcome</span>,
+                <span id="greetingName">Admin</span>
                 <span aria-hidden="true">👋</span>
               </h1>
               <p>Here's what's happening around your school today.</p>
@@ -202,7 +189,7 @@
               <span></span>
               <div>
                 <small>School status</small
-                ><strong>All systems operational</strong>
+                ><strong>Current school overview</strong>
               </div>
             </div>
           </div>
@@ -217,10 +204,7 @@
                 <span class="section-kicker">At a glance</span>
                 <h2 id="pulseTitle">School Pulse</h2>
               </div>
-              <button
-                class="text-button"
-                data-toast="Pulse details are being prepared"
-              >
+              <button class="text-button" data-href="../students/index.html">
                 View details <span>→</span>
               </button>
             </div>
@@ -228,7 +212,7 @@
               <article class="pulse-card pulse-card--primary">
                 <div class="pulse-top">
                   <span class="metric-icon">◉</span
-                  ><span class="trend trend--up">+4.8%</span>
+                  ><span class="trend trend--neutral">Current</span>
                 </div>
                 <strong id="metricStudents">—</strong><span>Students enrolled</span
                 ><small id="metricClasses">Loading class count…</small>
@@ -236,7 +220,7 @@
               <article class="pulse-card">
                 <div class="pulse-top">
                   <span class="metric-icon">✓</span
-                  ><span class="trend trend--up">+2.1%</span>
+                  ><span class="trend trend--neutral">Today</span>
                 </div>
                 <strong id="metricAttendance">—</strong><span>Attendance today</span
                 ><small id="metricAttendanceNote">Waiting for today's register</small>
@@ -244,7 +228,7 @@
               <article class="pulse-card">
                 <div class="pulse-top">
                   <span class="metric-icon">₵</span
-                  ><span class="trend trend--neutral">On track</span>
+                  ><span class="trend trend--neutral">Recorded</span>
                 </div>
                 <strong id="metricFees">—</strong><span>Fees collected</span
                 ><small id="metricFeesNote">Loading fee records…</small>
@@ -252,7 +236,7 @@
               <article class="pulse-card">
                 <div class="pulse-top">
                   <span class="metric-icon metric-icon--alert">!</span
-                  ><span class="trend trend--alert">Needs review</span>
+                  ><span class="trend trend--neutral">Current</span>
                 </div>
                 <strong id="metricAlerts">—</strong><span>Open alerts</span
                 ><small>Items needing follow-up</small>
@@ -260,7 +244,7 @@
               <article class="pulse-card">
                 <div class="pulse-top">
                   <span class="metric-icon">♙</span
-                  ><span class="trend trend--up">96%</span>
+                  ><span class="trend trend--neutral">Current</span>
                 </div>
                 <strong id="metricTeachers">—</strong><span>Teachers</span
                 ><small>In the staff directory</small>
@@ -281,43 +265,7 @@
                 <span class="count-badge" id="attentionCount">Loading</span>
               </div>
               <div class="attention-list" id="attentionList">
-                <button
-                  class="attention-item attention-item--warning"
-                  data-toast="Opening students with outstanding fees"
-                >
-                  <span class="attention-symbol">!</span
-                  ><span
-                    ><strong>12 students have outstanding fees</strong
-                    ><small>Finance · Updated 18 minutes ago</small></span
-                  ><b>→</b></button
-                ><button
-                  class="attention-item attention-item--warning"
-                  data-toast="Opening attendance review"
-                >
-                  <span class="attention-symbol">!</span
-                  ><span
-                    ><strong>3 teachers haven't submitted attendance</strong
-                    ><small>Attendance · Updated 27 minutes ago</small></span
-                  ><b>→</b></button
-                ><button
-                  class="attention-item attention-item--info"
-                  data-toast="Opening mathematics results"
-                >
-                  <span class="attention-symbol">i</span
-                  ><span
-                    ><strong>8 students scored below 40% in Mathematics</strong
-                    ><small>Academic performance · This term</small></span
-                  ><b>→</b></button
-                ><button
-                  class="attention-item attention-item--calm"
-                  data-toast="Opening event details"
-                >
-                  <span class="attention-symbol">•</span
-                  ><span
-                    ><strong>Staff meeting tomorrow at 8:00 AM</strong
-                    ><small>Calendar · Main conference room</small></span
-                  ><b>→</b>
-                </button>
+                <p class="dashboard-empty">Loading school alerts…</p>
               </div>
             </section>
             <section class="panel actions-panel" aria-labelledby="actionsTitle">
@@ -389,26 +337,7 @@
                 ></canvas>
               </div>
               <div class="class-breakdown" id="classBreakdown">
-                <div>
-                  <span>Grade 6</span><b>96%</b
-                  ><small>Present 96 · Absent 2 · Late 2</small
-                  ><i><em style="width: 96%"></em></i>
-                </div>
-                <div>
-                  <span>Grade 7</span><b>91%</b
-                  ><small>Present 91 · Absent 6 · Late 3</small
-                  ><i><em style="width: 91%"></em></i>
-                </div>
-                <div>
-                  <span>Grade 8</span><b>94%</b
-                  ><small>Present 94 · Absent 4 · Late 2</small
-                  ><i><em style="width: 94%"></em></i>
-                </div>
-                <div>
-                  <span>Grade 9</span><b>89%</b
-                  ><small>Present 89 · Absent 7 · Late 4</small
-                  ><i><em style="width: 89%"></em></i>
-                </div>
+                <p class="dashboard-empty">Loading attendance by class…</p>
               </div>
             </section>
             <section
@@ -489,47 +418,12 @@
                   <span class="section-kicker">Live feed</span>
                   <h2 id="activityTitle">Recent Activity</h2>
                 </div>
-                <button
-                  class="text-button"
-                  data-toast="Activity history is up to date"
-                >
+                <button class="text-button" data-href="../audit-logs/index.html">
                   View all <span>→</span>
                 </button>
               </div>
               <div class="activity-feed" id="activityFeed">
-                <div>
-                  <time>10:42</time
-                  ><span class="feed-icon feed-icon--green">₵</span>
-                  <p>
-                    <strong>Payment received</strong
-                    ><small>Brian Kamau · Grade 8A</small>
-                  </p>
-                  <b>KSh 15,000</b>
-                </div>
-                <div>
-                  <time>10:35</time
-                  ><span class="feed-icon feed-icon--blue">＋</span>
-                  <p>
-                    <strong>Student enrolled</strong
-                    ><small>Aisha Mwangi · Grade 7</small>
-                  </p>
-                </div>
-                <div>
-                  <time>10:21</time
-                  ><span class="feed-icon feed-icon--yellow">✓</span>
-                  <p>
-                    <strong>Attendance submitted</strong
-                    ><small>Mr. Otieno · Grade 8B</small>
-                  </p>
-                </div>
-                <div>
-                  <time>09:54</time
-                  ><span class="feed-icon feed-icon--purple">◌</span>
-                  <p>
-                    <strong>Announcement published</strong
-                    ><small>“Sports Day Schedule”</small>
-                  </p>
-                </div>
+                <p class="dashboard-empty">Loading school activity…</p>
               </div>
             </section>
             <section
@@ -547,31 +441,7 @@
                 </button>
               </div>
               <div class="event-list">
-                <button data-toast="Mathematics Exam details">
-                  <time><b>24</b><small>SEP</small></time
-                  ><span
-                    ><strong>Mathematics Exam</strong
-                    ><small>Tomorrow · 8:00 AM</small></span
-                  ><b>→</b></button
-                ><button data-toast="Staff Meeting details">
-                  <time><b>25</b><small>SEP</small></time
-                  ><span
-                    ><strong>Staff Meeting</strong
-                    ><small>Thursday · 3:00 PM</small></span
-                  ><b>→</b></button
-                ><button data-toast="Sports Day details">
-                  <time><b>26</b><small>SEP</small></time
-                  ><span
-                    ><strong>Sports Day</strong
-                    ><small>Friday · All day</small></span
-                  ><b>→</b></button
-                ><button data-toast="Parent Meeting details">
-                  <time><b>29</b><small>SEP</small></time
-                  ><span
-                    ><strong>Parent Meeting</strong
-                    ><small>Monday · 9:00 AM</small></span
-                  ><b>→</b>
-                </button>
+                <p class="dashboard-empty">Loading upcoming events…</p>
               </div>
             </section>
             <section class="panel audit-panel" aria-labelledby="auditTitle">
@@ -580,35 +450,12 @@
                   <span class="section-kicker">Traceability</span>
                   <h2 id="auditTitle">System Activity</h2>
                 </div>
-                <button
-                  class="text-button"
-                  data-toast="Audit log is available to administrators"
-                >
+                <button class="text-button" data-href="../audit-logs/index.html">
                   View audit log <span>→</span>
                 </button>
               </div>
-              <ul>
-                <li>
-                  <span>↗</span>
-                  <p>
-                    <strong>Admin changed John's class</strong
-                    ><small>Grade 8A → Grade 8B · 12 min ago</small>
-                  </p>
-                </li>
-                <li>
-                  <span>＋</span>
-                  <p>
-                    <strong>Teacher added</strong
-                    ><small>Mr. Kamau · Mathematics · 28 min ago</small>
-                  </p>
-                </li>
-                <li>
-                  <span>₵</span>
-                  <p>
-                    <strong>Fee payment recorded</strong
-                    ><small>KSh 15,000 · Brian Kamau · 41 min ago</small>
-                  </p>
-                </li>
+              <ul id="dashboardAuditList">
+                <li><p class="dashboard-empty">Loading recent audit events…</p></li>
               </ul>
             </section>
           </div>
@@ -650,10 +497,5 @@
     </div>
     <div class="dashboard-toast" id="dashboardToast" role="status"></div>
 
-    <script src="../shared/auth-client.js"></script>
-    <script src="../shared/auth-guard.js"></script>
-    <script src="../shared/sidebar.js"></script>
-    <script src="../shared/vendor/chart.umd.js"></script>
-    <script src="script.js"></script>
   </body>
 </html>

@@ -3,10 +3,13 @@ const crypto = require('crypto');
 const db = require('../utils/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { broadcastToChat } = require('../utils/realtime');
+const { recordAuditEvent } = require('../utils/auditLog');
+const { isSchoolAdmin } = require('../utils/roles');
 
 const router = express.Router();
 const CHATS = 'chats';
 const MESSAGES = 'chat-messages';
+const ALLOWED_REACTIONS = new Set(['👍', '❤️', '😂', '😮', '😢', '🙏']);
 
 // Each chat (a "server"): { id, name, memberIds, createdBy, createdAt, inviteCode }
 // Each message: { id, chatId, senderId, senderName, senderRole, text, createdAt,
@@ -40,7 +43,7 @@ async function requireMembership(req, res, next) {
     if (!chat || chat.schoolId !== req.user.schoolId) {
       return res.status(404).json({ error: 'Chat not found.' });
     }
-    if (req.user.role !== 'admin' && !(chat.memberIds || []).includes(req.user.id)) {
+    if (!isSchoolAdmin(req.user) && !(chat.memberIds || []).includes(req.user.id)) {
       return res.status(404).json({ error: 'Chat not found.' });
     }
     req.chat = chat;
@@ -72,7 +75,7 @@ router.get('/', requireAuth, safe(async (req, res) => {
     ? await db.readBySchool(CHATS, req.user.schoolId)
     : [];
   const visible = req.user.schoolId ? chats.filter(chat =>
-    (req.user.role === 'admin' || (chat.memberIds || []).includes(req.user.id))
+    (isSchoolAdmin(req.user) || (chat.memberIds || []).includes(req.user.id))
   ) : [];
   res.json(visible);
 }));
@@ -104,7 +107,15 @@ router.post('/', requireAuth, requireRole('admin'), safe(async (req, res) => {
     createdAt: new Date().toISOString(),
     inviteCode: generateInviteCode(),
   };
-  await db.insert(CHATS, chat);
+  await db.transaction(async () => {
+    await db.insert(CHATS, chat);
+    await recordAuditEvent(req, {
+      action: 'CHAT_CREATED',
+      entityType: 'chat',
+      entityId: chat.id,
+      metadata: { memberCount: chat.memberIds.length },
+    });
+  });
   res.status(201).json(chat);
 }));
 
@@ -129,7 +140,17 @@ router.patch('/:id', requireAuth, requireRole('admin'), safeMiddleware(requireSc
     }
     updates.memberIds = [...new Set([...requestedMemberIds, req.user.id])];
   }
-  const updated = await db.update(CHATS, req.params.id, updates);
+  const updated = await db.transaction(async () => {
+    const result = await db.update(CHATS, req.params.id, updates);
+    if (!result) return null;
+    await recordAuditEvent(req, {
+      action: 'CHAT_UPDATED',
+      entityType: 'chat',
+      entityId: req.params.id,
+      metadata: { fields: Object.keys(updates) },
+    });
+    return result;
+  });
   if (!updated) return res.status(404).json({ error: 'Chat not found.' });
   res.json(updated);
 }));
@@ -139,7 +160,16 @@ router.patch('/:id', requireAuth, requireRole('admin'), safeMiddleware(requireSc
  * Rotates the invite code (e.g. if it leaked / needs revoking).
  */
 router.post('/:id/regenerate-code', requireAuth, requireRole('admin'), safeMiddleware(requireSchoolChat), safe(async (req, res) => {
-  const updated = await db.update(CHATS, req.params.id, { inviteCode: generateInviteCode() });
+  const updated = await db.transaction(async () => {
+    const result = await db.update(CHATS, req.params.id, { inviteCode: generateInviteCode() });
+    if (!result) return null;
+    await recordAuditEvent(req, {
+      action: 'CHAT_INVITE_CODE_REGENERATED',
+      entityType: 'chat',
+      entityId: req.params.id,
+    });
+    return result;
+  });
   if (!updated) return res.status(404).json({ error: 'Chat not found.' });
   res.json(updated);
 }));
@@ -149,7 +179,17 @@ router.post('/:id/regenerate-code', requireAuth, requireRole('admin'), safeMiddl
  * Deletes the chat and all of its messages.
  */
 router.delete('/:id', requireAuth, requireRole('admin'), safeMiddleware(requireSchoolChat), safe(async (req, res) => {
-  const removed = await db.remove(CHATS, req.params.id);
+  const removed = await db.transaction(async () => {
+    const didRemove = await db.remove(CHATS, req.params.id);
+    if (didRemove) {
+      await recordAuditEvent(req, {
+        action: 'CHAT_DELETED',
+        entityType: 'chat',
+        entityId: req.params.id,
+      });
+    }
+    return didRemove;
+  });
   if (!removed) return res.status(404).json({ error: 'Chat not found.' });
   res.status(204).end();
 }));
@@ -199,6 +239,7 @@ router.post('/:chatId/messages', requireAuth, safeMiddleware(requireMembership),
   const message = {
     id: crypto.randomUUID(),
     chatId: req.params.chatId,
+    schoolId: req.user.schoolId,
     senderId: req.user.id,
     senderName: req.user.name,
     senderRole: req.user.role,
@@ -272,7 +313,9 @@ router.delete('/:chatId/messages/:messageId', requireAuth, safeMiddleware(requir
  */
 router.post('/:chatId/messages/:messageId/react', requireAuth, requireMembership, safe(async (req, res) => {
   const { emoji } = req.body;
-  if (!emoji) return res.status(400).json({ error: 'An emoji is required.' });
+  if (typeof emoji !== 'string' || !ALLOWED_REACTIONS.has(emoji)) {
+    return res.status(400).json({ error: 'Choose a supported reaction.' });
+  }
   const message = await db.findById(MESSAGES, req.params.messageId);
   if (!message || message.chatId !== req.params.chatId) {
     return res.status(404).json({ error: 'Message not found.' });
