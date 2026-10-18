@@ -7,7 +7,13 @@
    and surfaces API errors consistently.
 ========================================================= */
 
-const DEFAULT_SMS_API_BASE = "http://localhost:4000/api";
+const LOCAL_SMS_API_BASE = "http://localhost:4000/api";
+const HOSTED_SMS_API_BASE = "https://mandela-sms-api.onrender.com/api";
+// Local development keeps using the local backend; any other host
+// (for example the Netlify site) uses the hosted API.
+const DEFAULT_SMS_API_BASE = ["", "localhost", "127.0.0.1"].includes(window.location.hostname)
+  ? LOCAL_SMS_API_BASE
+  : HOSTED_SMS_API_BASE;
 const TOKEN_KEY = "sms_token";
 const USER_KEY = "sms_user";
 const API_BASE_KEY = "sms_api_base";
