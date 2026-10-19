@@ -29,11 +29,19 @@ module.exports = createCrudRouter('assignment-submissions', {
     const assignment = submission.assignmentId
       ? await db.findById('assignments', submission.assignmentId)
       : null;
+    const schoolClass = assignment?.classId
+      ? await db.findById('classes', assignment.classId)
+      : null;
     if (
       !student ||
       student.schoolId !== user.schoolId ||
       !assignment ||
-      assignment.schoolId !== user.schoolId
+      assignment.schoolId !== user.schoolId ||
+      !schoolClass ||
+      schoolClass.schoolId !== user.schoolId ||
+      (student.classId
+        ? student.classId !== schoolClass.id
+        : student.class !== schoolClass.name)
     ) {
       const error = new Error('Student or assignment not found in your school.');
       error.statusCode = 404;

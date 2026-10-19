@@ -11,7 +11,10 @@
     "seed": "node utils/seed.js",
     "db:migrate": "node utils/migrate.js",
     "provision:super-admin": "node scripts/provision-super-admin.js",
-    "test": "node test/database.js && node test/fresh-migrations.js && node test/migration-failure.js && node test/seed.js && node test/smoke.js && node test/qa-routes.js && node test/qa-bugs.js && node test/platform-roles.js && node test/platform-audit.js && node test/profile-route.js && node test/invite-claim.js && node test/crud-tenant-isolation.js && node test/email-disabled.js",
+    "test": "npm run test:critical && npm run test:major && npm run test:minor",
+    "test:critical": "node test/smoke.js && node test/crud-tenant-isolation.js && node test/invite-claim.js && node test/platform-roles.js && node test/platform-audit.js && node test/qa-routes.js && node test/qa-bugs.js",
+    "test:major": "node test/database.js && node test/fresh-migrations.js && node test/migration-failure.js && node test/seed.js && node test/profile-route.js && node test/email-disabled.js",
+    "test:minor": "node ../frontend/login/script.test.js && node ../frontend/shared/auth-client.test.js && node ../frontend/shared/csv.test.js && node ../frontend/qa-testing/workspace-access.test.js && node ../frontend/qa-testing/test-case-search.test.js",
     "test:postgres": "node test/database.js"
   },
   "dependencies": {

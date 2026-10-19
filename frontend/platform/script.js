@@ -336,12 +336,6 @@ async function createSchoolAdmin(event) {
   }
 }
 
-function csvCell(value) {
-  let safeValue = String(value ?? "");
-  if (/^[=+\-@]/.test(safeValue)) safeValue = `'${safeValue}`;
-  return `"${safeValue.replace(/"/g, '""')}"`;
-}
-
 function exportSchoolDirectory() {
   const rows = [
     ["School name", "School ID", "School status", "Setup status", "Created"],
@@ -353,7 +347,7 @@ function exportSchoolDirectory() {
       school.createdAt || "",
     ]),
   ];
-  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+  const csv = rows.map((row) => row.map(SmsCsv.cell).join(",")).join("\r\n");
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
   const link = document.createElement("a");
   link.href = url;

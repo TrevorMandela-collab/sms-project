@@ -17,6 +17,9 @@ const DEFAULT_SMS_API_BASE = ["", "localhost", "127.0.0.1"].includes(window.loca
 const TOKEN_KEY = "sms_token";
 const USER_KEY = "sms_user";
 const API_BASE_KEY = "sms_api_base";
+if (localStorage.getItem("sms:reduce-motion") === "true") {
+  document.documentElement.classList.add("reduce-motion");
+}
 
 class SmsApiError extends Error {
   constructor(

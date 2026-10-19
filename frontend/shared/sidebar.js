@@ -3,6 +3,12 @@
   const sidebarScriptUrl = document.currentScript && document.currentScript.src;
   const embeddedMode =
     new URLSearchParams(window.location.search).get("qaEmbed") === "1";
+  const REDUCE_MOTION_KEY = "sms:reduce-motion";
+  let reduceMotionEnabled = localStorage.getItem(REDUCE_MOTION_KEY) === "true";
+  document.documentElement.classList.toggle(
+    "reduce-motion",
+    reduceMotionEnabled,
+  );
   if (embeddedMode) {
     document.documentElement.classList.add("qa-embedded-page");
   }
@@ -220,7 +226,7 @@
     slot.innerHTML = `
       <div class="sidebar-brand">
         <button class="sidebar-account-trigger" id="sidebarAccountTrigger" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="sidebarAccountMenu"><span class="sidebar-brand-icon">M</span>
-        <span class="sidebar-brand-text">Mandela</span></button><div class="sidebar-account-menu" id="sidebarAccountMenu" hidden><div class="sidebar-account-info"><strong id="sidebarAccountName"></strong><small id="sidebarAccountRole"></small></div><a class="sidebar-account-settings" href="../settings/index.html">Account settings</a><button type="button" class="sidebar-account-logout" id="sidebarLogoutBtn">Log out</button></div>
+        <span class="sidebar-brand-text"><strong>Mandela</strong><small>SMS admin</small></span></button><div class="sidebar-account-menu" id="sidebarAccountMenu" hidden><div class="sidebar-account-info"><strong id="sidebarAccountName"></strong><small id="sidebarAccountRole"></small></div><label class="sidebar-motion-setting" for="sidebarReduceMotion"><input id="sidebarReduceMotion" type="checkbox"><span>Reduce motion</span></label><a class="sidebar-account-settings" href="../settings/index.html">Account settings</a><button type="button" class="sidebar-account-logout" id="sidebarLogoutBtn">Log out</button></div>
         <button class="sidebar-collapse" id="sharedSidebarCollapse" type="button" aria-label="Collapse navigation" aria-controls="sidebarSlot" aria-expanded="true" title="Collapse navigation">←</button>
       </div>
       <nav class="sidebar-nav" aria-label="Primary navigation">${groups}</nav>
@@ -232,6 +238,19 @@
     const accountMenu = document.getElementById("sidebarAccountMenu");
     document.getElementById("sidebarAccountName").textContent = name;
     document.getElementById("sidebarAccountRole").textContent = role;
+    const reduceMotionCheckbox = document.getElementById("sidebarReduceMotion");
+    reduceMotionCheckbox.checked = reduceMotionEnabled;
+    reduceMotionCheckbox.addEventListener("change", () => {
+      reduceMotionEnabled = reduceMotionCheckbox.checked;
+      document.documentElement.classList.toggle(
+        "reduce-motion",
+        reduceMotionEnabled,
+      );
+      localStorage.setItem(
+        REDUCE_MOTION_KEY,
+        String(reduceMotionEnabled),
+      );
+    });
     function setAccountMenu(open) {
       accountMenu.hidden = !open;
       accountTrigger.setAttribute("aria-expanded", String(open));
@@ -426,10 +445,10 @@
     button.id = "mandelaCommandTrigger";
     button.type = "button";
     button.setAttribute("aria-label", "Search and commands, Control K");
-    button.innerHTML = '<span aria-hidden="true">⌕</span><span class="sidebar-command-label">Search</span><kbd>Ctrl K</kbd>';
-    const brand = document.querySelector(".sidebar-brand");
-    const collapse = document.getElementById("sharedSidebarCollapse");
-    if (brand && collapse) brand.insertBefore(button, collapse);
+    button.innerHTML = '<span aria-hidden="true">⌕</span><span class="sidebar-command-label">Search</span>';
+    const sidebar = document.getElementById("sidebarSlot");
+    const nav = sidebar?.querySelector(".sidebar-nav");
+    if (sidebar && nav) sidebar.insertBefore(button, nav);
 
     const script = document.createElement("script");
     script.id = "mandelaCommandPaletteScript";

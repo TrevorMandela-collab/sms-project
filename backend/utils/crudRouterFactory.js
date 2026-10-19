@@ -67,6 +67,19 @@ function createCrudRouter(collection, options = {}) {
       handler(req, res).catch((error) => sendError(res, error));
   }
 
+  function getFilterValue(query, field) {
+    const nestedFilters = query.filter;
+    if (
+      nestedFilters &&
+      typeof nestedFilters === "object" &&
+      !Array.isArray(nestedFilters) &&
+      Object.prototype.hasOwnProperty.call(nestedFilters, field)
+    ) {
+      return nestedFilters[field];
+    }
+    return query[`filter[${field}]`];
+  }
+
   function validateRequiredFields(record) {
     for (const field of options.requiredFields || []) {
       const value = record[field];
@@ -101,7 +114,7 @@ function createCrudRouter(collection, options = {}) {
     if (Array.isArray(options.filterFields)) {
       result = result.filter((record) =>
         options.filterFields.every((field) => {
-          const value = req.query[`filter[${field}]`];
+          const value = getFilterValue(req.query, field);
           return (
             value === undefined || String(record[field] ?? "") === String(value)
           );
@@ -167,7 +180,7 @@ function createCrudRouter(collection, options = {}) {
         }
         const filters = {};
         for (const field of options.filterFields || []) {
-          const value = req.query[`filter[${field}]`];
+          const value = getFilterValue(req.query, field);
           if (value !== undefined) filters[field] = value;
         }
         const sort = String(req.query.sort || "").trim();

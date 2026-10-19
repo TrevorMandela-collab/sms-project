@@ -9,10 +9,13 @@ body {
   min-height: 100vh;
   margin: 0;
   padding: 20px;
-  background: #f7f9fa;
-  color: #17212b;
-  font-family:
-    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+}
+
+body::before {
+  display: none;
 }
 
 .login-wrap {
@@ -22,15 +25,15 @@ body {
 
 .login-card {
   padding: 32px 28px;
-  background: #fff;
-  border: 1px solid #e5ebee;
-  border-radius: 6px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.18);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
 }
 
 .login-title {
   margin: 0 0 4px;
-  color: #17212b;
+  color: var(--color-ink);
   font-size: 1.9rem;
   font-weight: 700;
   letter-spacing: -0.045em;
@@ -39,7 +42,7 @@ body {
 
 .login-sub {
   margin: 4px 0 24px;
-  color: #71808f;
+  color: var(--color-ink-muted);
   font-size: 0.82rem;
   text-align: center;
 }
@@ -52,7 +55,7 @@ body {
 }
 
 .form-field label {
-  color: #71808f;
+  color: var(--color-ink-muted);
   font-size: 0.7rem;
   letter-spacing: 0.5px;
   text-transform: uppercase;
@@ -63,8 +66,9 @@ body {
   padding: 9px 10px;
   border: 1px solid #cad8dd;
   border-radius: 4px;
-  background: #fff;
-  color: #17212b;
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  border-radius: var(--radius-sm);
   font: inherit;
   font-size: 0.88rem;
 }
@@ -72,8 +76,8 @@ body {
 .form-field input:focus-visible,
 .link-btn:focus-visible,
 .login-submit:focus-visible {
-  outline: 2px solid #237c78;
-  outline-offset: 2px;
+  border-color: var(--focus-outline);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .login-submit {
@@ -84,8 +88,8 @@ body {
   margin-top: 6px;
   padding: 11px;
   border: 0;
-  border-radius: 7px;
-  background: #237c78;
+  border-radius: var(--radius);
+  background: var(--color-accent);
   color: #fff;
   cursor: pointer;
   font: inherit;
@@ -95,12 +99,12 @@ body {
 }
 
 .login-submit:hover {
-  background: #1d6966;
+  background: var(--color-accent-strong);
 }
 
 .login-footnote {
   margin: 18px 0 0;
-  color: #71808f;
+  color: var(--color-ink-muted);
   font-size: 0.75rem;
   text-align: center;
 }
@@ -109,7 +113,7 @@ body {
   padding: 0;
   border: 0;
   background: none;
-  color: #4d79a6;
+  color: var(--color-info);
   cursor: pointer;
   font: inherit;
   font-size: inherit;
@@ -119,10 +123,10 @@ body {
 .error-banner {
   margin-bottom: 16px;
   padding: 10px 12px;
-  border: 1px solid #c65d5d;
-  border-radius: 4px;
-  background: rgba(217, 138, 153, 0.15);
-  color: #a63838;
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
   font-size: 0.8rem;
 }
 

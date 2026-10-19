@@ -1,6 +1,7 @@
 const createCrudRouter = require("../utils/crudRouterFactory");
 const db = require("../utils/db");
 const { toCents } = require("../utils/money");
+const { getTeacherStudentIds } = require("../utils/teacherScope");
 
 // Each fee record: { id, studentId, studentName, class, amount, due, status }
 module.exports = createCrudRouter("fees", {
@@ -14,6 +15,10 @@ module.exports = createCrudRouter("fees", {
     records.filter((r) => (user.childIds || []).includes(r.studentId)),
   scopeForStudent: (records, user) =>
     records.filter((r) => r.studentId === user.studentId),
+  scopeForTeacher: async (records, user) => {
+    const studentIds = await getTeacherStudentIds(user);
+    return records.filter((record) => studentIds.has(record.studentId));
+  },
   searchFields: ["studentName", "class", "status"],
   filterFields: ["status", "class"],
   sortFields: ["studentName", "amount", "due", "createdAt"],

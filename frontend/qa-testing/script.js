@@ -10,6 +10,22 @@
     { key: "production", label: "Production" }
   ];
   const STATUS_LABELS = { pass: "Pass", fail: "Fail", blocked: "Blocked", notrun: "Not Run" };
+  const TEST_CATEGORY_LABELS = {
+    "Authentication and sessions": "Authentication",
+    "Super Admin platform": "Platform",
+    "Roles and school isolation": "School access",
+    "Student management": "Students",
+    "Teachers, classes and subjects": "Staff",
+    "Attendance": "Attendance",
+    "Fees and finance": "Finance",
+    "Academics, assignments and timetable": "Academics",
+    "Communication, events and chat": "Communication",
+    "Student, parent and teacher portals": "Portals",
+    "Settings, profile and audit": "Settings",
+    "Search, notifications and navigation": "Navigation",
+    "Mobile and accessibility": "Accessibility",
+    "QA Lab access and reporting": "QA Lab"
+  };
   const SAVE_DELAY_MS = 1000;
   const SAVE_FLUSH_TIMEOUT_MS = 15000;
   const APPLICATION_MODULES = [
@@ -36,6 +52,7 @@
 
   let tests = [];
   let index = 0;
+  let priorityFilter = "all";
   const DEV_BASE = "http://localhost:4000/api";
   const PROD_BASE = ""; // empty = Production not available yet
   let currentEnv = SmsAuth.getApiBase().replace(/\/$/, "") === DEV_BASE ? "development" : "other";
@@ -87,9 +104,7 @@
 
   function setupWorkspace() {
     const user = SmsAuth.getUser() || {};
-    const modules = APPLICATION_MODULES.filter(function (module) {
-      return module.roles.includes(user.role);
-    });
+    const modules = window.QAWorkspaceAccess(APPLICATION_MODULES, user.role);
     moduleSelect.textContent = "";
 
     for (const module of modules) {
@@ -210,6 +225,10 @@
     document.getElementById("progressText").textContent = percent + "%";
     document.getElementById("progressFill").style.width = percent + "%";
     document.getElementById("progressBar").setAttribute("aria-valuenow", String(percent));
+  }
+
+  function friendlySuiteLabel(suite) {
+    return TEST_CATEGORY_LABELS[suite] || suite || "General";
   }
 
   function setSaveMessage(text) {
@@ -511,7 +530,7 @@
     envTag.textContent = envLabel();
     idEl.textContent = t.id;
     titleEl.textContent = t.title;
-    suiteEl.textContent = t.suite;
+    suiteEl.textContent = friendlySuiteLabel(t.suite);
 
     bodyEl.textContent = "";
     const pre = el("p");
@@ -551,7 +570,8 @@
     const environment = currentEnv;
     const id = tests[index].id;
     const r = getResult(id);
-    r.status = r.status === status ? "notrun" : status;
+    if (r.status === status) return;
+    r.status = status;
     applyStatus(r.status);
     const state = saveStateFor(environment, id);
     state.revision += 1;
@@ -613,6 +633,85 @@
       return;
     }
     if (placeholder) placeholder.hidden = true;
+
+    const searchInput = document.getElementById("qaTestSearch");
+    const searchStatus = document.getElementById("qaTestSearchStatus");
+    const searchResults = document.getElementById("qaTestSearchResults");
+    const priorityFilters = document.getElementById("qaPriorityFilters");
+    const filterOptions = [
+      { key: "all", label: "All" },
+      { key: "critical", label: "Critical" },
+      { key: "major", label: "Major" },
+      { key: "minor", label: "Minor" },
+      { key: "cosmetics", label: "Cosmetics" }
+    ];
+
+    function renderPriorityFilters() {
+      priorityFilters.textContent = "";
+      for (const filter of filterOptions) {
+        const count = filter.key === "all"
+          ? tests.length
+          : tests.filter((test) => window.QATestCasePriority(test) === filter.key).length;
+        const button = el(
+          "button",
+          "qa-priority-filter qa-priority-filter--" + filter.key,
+          filter.label + " (" + count + ")"
+        );
+        button.type = "button";
+        button.setAttribute("aria-pressed", String(priorityFilter === filter.key));
+        button.addEventListener("click", function () {
+          priorityFilter = filter.key;
+          renderPriorityFilters();
+          renderSearchResults();
+        });
+        priorityFilters.appendChild(button);
+      }
+    }
+
+    function renderSearchResults() {
+      searchResults.textContent = "";
+      const query = searchInput.value.trim();
+      if (!query && priorityFilter === "all") {
+        searchResults.hidden = true;
+        searchStatus.textContent = "Type to search or choose a priority category.";
+        return;
+      }
+
+      const matches = (query
+        ? window.QATestCaseSearch(tests, query)
+        : tests
+      ).filter((test) =>
+        priorityFilter === "all" || window.QATestCasePriority(test) === priorityFilter
+      );
+      searchStatus.textContent = matches.length
+        ? matches.length + (matches.length === 1 ? " test case shown." : " test cases shown.")
+        : "No test cases match this search and priority category.";
+      searchResults.hidden = matches.length === 0;
+      for (const test of matches) {
+        const item = el("li");
+        const itemLabel = test.id + " — " + test.title + " (" + friendlySuiteLabel(test.suite) + ")";
+        const button = el(
+          "button",
+          "qa-search-result",
+          itemLabel,
+        );
+        button.type = "button";
+        button.addEventListener("click", async function () {
+          if (!(await flushPending())) return;
+          const selectedIndex = tests.findIndex((entry) => entry.id === test.id);
+          if (selectedIndex < 0) return;
+          index = selectedIndex;
+          renderCase();
+          card.scrollIntoView({ behavior: "smooth", block: "start" });
+          idEl.focus({ preventScroll: true });
+        });
+        item.appendChild(button);
+        searchResults.appendChild(item);
+      }
+    }
+    searchInput.addEventListener("input", renderSearchResults);
+    renderPriorityFilters();
+    renderSearchResults();
 
     const envBar = el("div", "qa-envbar");
     envBar.appendChild(el("span", "qa-case-label", "Environment:"));

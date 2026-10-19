@@ -43,11 +43,14 @@ inspection and tool results so far, not assumptions about deployment.
 
 ## Phase 2 — Shared visual system
 
-- [ ] Review the existing in-progress edits to shared theme, login, dashboard,
+- [x] Review the existing in-progress edits to shared theme, login, dashboard,
   and navigation; preserve useful work and identify remaining inconsistencies.
-- [ ] Complete reusable accessible tokens and controls.
-- [ ] Complete distinct platform and school shells while preserving role checks.
+- [x] Complete reusable accessible tokens and controls.
+- [x] Complete distinct platform and school shells while preserving role checks.
 - [ ] Verify responsive layouts, focus, reduced motion, contrast, and themes.
+  Mobile overflow and keyboard-focus checks passed on the tested routes, and
+  the saved/OS reduced-motion behavior is verified; full contrast and theme
+  coverage remain.
 - [x] Render shared account-menu profile fields with `textContent` so profile
   names/emails cannot be interpreted as markup; remaining module-specific
   dynamic HTML still needs a full page-by-page review.
@@ -113,8 +116,9 @@ inspection and tool results so far, not assumptions about deployment.
   profile, invite, and shared CRUD tenant-isolation tests.
 - [x] Extend the manual QA matrix to 86 test cases across 14 suites, including
   Super Admin platform workflows, school isolation, school modules, portals,
-  mobile/accessibility, and QA Lab access; the QA Lab workspace now includes
-  Platform Overview for Super Admins.
+  mobile/accessibility, and QA Lab access; the QA Lab workspace maps the
+  `school_admin` role to school-admin modules and includes Platform Overview
+  for Super Admins.
 - [x] In the isolated browser, verify login destination/navigation for the
   seeded admin, School Admin, teacher, parent, student, and Super Admin roles;
   student and School Admin direct access to the platform page redirects away.
@@ -128,7 +132,12 @@ inspection and tool results so far, not assumptions about deployment.
 - [x] Run Node syntax checks across all 93 backend/frontend JavaScript files,
   the chat renderer tests, and `git diff --check`.
 - [ ] Complete browser-level responsive and accessibility checks; there is no
-  frontend build/lint script.
+  frontend build/lint script. An authenticated sweep attempted 25 route
+  targets at five viewport sizes; 22 stayed on the requested page and three
+  redirected by role. No document-level horizontal overflow remained after
+  targeted fixes. A keyboard Tab sweep visited 463 interactive controls across
+  23 pages with no missing visible focus indicators; full accessibility checks
+  remain.
 - [ ] Review final diff for secrets, unrelated edits, and accidental data.
 
 ## Phase 9 — Documentation and final polish
@@ -141,7 +150,10 @@ inspection and tool results so far, not assumptions about deployment.
 
 ## Current checkout notes
 
-- Branch: `phase-1/database-persistence-hardening`; HEAD observed at `4fff8d5`.
+- Initial audit: `phase-1/database-persistence-hardening` at `4fff8d5`.
+- Current workspace (2026-10-19): `main` tracking `origin/main`, HEAD
+  `40416ad882f43533a140fae9c9d1f8513f2e3137`, with 30 modified or untracked
+  entries preserved.
 - The audit observed 37 dirty/untracked entries before this checklist was
   created. Existing changes and untracked files must be preserved.
 - No production database, QA database, backup, `.env` value, or `.Render`
@@ -173,9 +185,26 @@ inspection and tool results so far, not assumptions about deployment.
   startup output confirmed the exact path. Both test server processes stopped,
   ports `4311` and `5500` have no listeners, and only that SQLite file was
   removed. No repository database was used or modified.
-- Current next work: finish route-by-route isolation audit; complete
-  remaining route-by-route and PostgreSQL authorization validation; assess
-  the other pages, responsive/accessibility behavior, analytics, and
-  notification coverage;
-  document local demos for all roles; inspect final diff for secrets and
-  unintended changes.
+- Latest continuation (2026-10-19): Added an in-app Reduce motion preference
+  with keyboard/pointer operation and persistence; OS reduced-motion is still
+  honored. The regression test and full `npm test` suite pass. The authenticated
+  five-viewport sweep of 25 route targets (22 pages and three role redirects)
+  found and verified fixes for narrow Assignments
+  statistic cards and Audit Logs filters. The Assignments dialog at 320px and
+  Audit Logs table scrolling were also checked. One expected QA-access HTTP
+  403 occurred because `QA_OWNER_EMAILS` was not configured for this sweep;
+  there were no page JavaScript errors. A shared CSV cell encoder now quotes
+  delimiters and neutralizes spreadsheet formula prefixes for Fees and
+  platform exports; its three regression tests pass. Only the isolated demo
+  database was used, and all temporary services were stopped.
+- Latest QA Lab verification: the authorized isolated School Admin login
+  opened QA Lab, loaded its 15 permitted modules and Dashboard workspace, and
+  saved/reloaded AUTH-001 successfully against the disposable database. This
+  exposed and fixed the `school_admin`/`admin` module-role mismatch; the new
+  role regression test and full `npm test` suite pass. The result exists only
+  in the isolated temp database.
+- Current next work: complete the route-by-route isolation audit and remaining
+  PostgreSQL authorization checks; review full keyboard/contrast/accessibility
+  behavior and remaining CRUD workflows; assess analytics and notification
+  coverage; document local demos for all roles; inspect the final diff for
+  secrets and unintended changes.

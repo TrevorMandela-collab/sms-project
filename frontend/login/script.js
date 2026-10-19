@@ -12,6 +12,7 @@ const errorBanner = document.getElementById("errorBanner");
 const modeSubtitle = document.getElementById("modeSubtitle");
 const loginFootnote = document.getElementById("loginFootnote");
 const showBootstrapBtn = document.getElementById("showBootstrapBtn");
+let loginInProgress = false;
 
 // If already logged in, skip straight to the right home page for the role.
 if (SmsAuth.isLoggedIn()) {
@@ -37,6 +38,10 @@ showBootstrapBtn.addEventListener("click", () => {
 
 loginForm.addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (loginInProgress) return;
+  loginInProgress = true;
+  const submitButton = loginForm.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
   clearError();
   const email = document.getElementById("loginEmail").value.trim();
   const password = document.getElementById("loginPassword").value;
@@ -46,6 +51,8 @@ loginForm.addEventListener("submit", async (e) => {
     window.location.href = SmsAuth.homeUrlForRole(user.role);
   } catch (err) {
     showError(err.message);
+    loginInProgress = false;
+    submitButton.disabled = false;
   }
 });
 

@@ -1,5 +1,6 @@
 const assert = require("assert");
 const crypto = require("crypto");
+const jwt = require("jsonwebtoken");
 const fs = require("fs");
 const Module = require("module");
 const os = require("os");
@@ -16,6 +17,161 @@ const baseUrl = `http://127.0.0.1:${port}/api`;
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function openRealtimeSocket(token) {
+  const suffix = token ? `?token=${encodeURIComponent(token)}` : "";
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/ws${suffix}`);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.terminate();
+      reject(new Error("WebSocket did not connect before the timeout"));
+    }, 3000);
+    const cleanup = () => {
+      clearTimeout(timer);
+      socket.removeListener("open", onOpen);
+      socket.removeListener("error", onError);
+    };
+    const onOpen = () => {
+      cleanup();
+      resolve(socket);
+    };
+    const onError = (error) => {
+      cleanup();
+      socket.terminate();
+      reject(error);
+    };
+    socket.once("open", onOpen);
+    socket.once("error", onError);
+  });
+}
+
+function waitForRealtimeClose(token) {
+  const suffix = token ? `?token=${encodeURIComponent(token)}` : "";
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/ws${suffix}`);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.terminate();
+      reject(new Error("WebSocket did not close before the timeout"));
+    }, 3000);
+    socket.on("error", () => {});
+    socket.once("close", (code) => {
+      clearTimeout(timer);
+      resolve(code);
+    });
+  });
+}
+
+function nextRealtimeMessage(socket, timeoutMs = 3000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.removeListener("message", onMessage);
+      reject(new Error("Expected WebSocket notification was not received"));
+    }, timeoutMs);
+    const onMessage = (raw) => {
+      clearTimeout(timer);
+      try {
+        resolve(JSON.parse(raw.toString()));
+      } catch (error) {
+        reject(error);
+      }
+    };
+    socket.once("message", onMessage);
+  });
+}
+
+function expectNoRealtimeMessage(socket, timeoutMs = 200) {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timer);
+      socket.removeListener("message", onMessage);
+      socket.removeListener("close", onClose);
+    };
+    const onMessage = () => {
+      cleanup();
+      reject(new Error("Unauthorized WebSocket received a chat notification"));
+    };
+    const onClose = (code) => {
+      cleanup();
+      reject(new Error(`WebSocket closed unexpectedly with code ${code}`));
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, timeoutMs);
+    socket.once("message", onMessage);
+    socket.once("close", onClose);
+  });
+}
+
+function getProtectedRouteChecks() {
+  const checks = [];
+  const crudCollections = [
+    "students",
+    "teachers",
+    "subjects",
+    "classes",
+    "assignments",
+    "assignment-submissions",
+    "announcements",
+    "attendance",
+    "fees",
+    "exams",
+    "timetable",
+    "library",
+    "library-loans",
+    "events",
+  ];
+  for (const collection of crudCollections) {
+    checks.push(
+      ["GET", `/${collection}`],
+      ["POST", `/${collection}`],
+      ["GET", `/${collection}/authz-missing-record`],
+      ["PATCH", `/${collection}/authz-missing-record`],
+      ["DELETE", `/${collection}/authz-missing-record`],
+    );
+  }
+  checks.push(
+    ["POST", "/auth/password/change"],
+    ["GET", "/auth/me"],
+    ["PATCH", "/auth/me"],
+    ["POST", "/auth/logout"],
+    ["GET", "/auth/users"],
+    ["PATCH", "/auth/users/authz-missing-user/role"],
+    ["PATCH", "/auth/users/authz-missing-user"],
+    ["PATCH", "/auth/users/authz-missing-user/status"],
+    ["DELETE", "/auth/users/authz-missing-user"],
+    ["GET", "/schools/me"],
+    ["PATCH", "/schools/me"],
+    ["GET", "/schools/platform"],
+    ["POST", "/schools/platform"],
+    ["GET", "/schools/platform/authz-missing-school"],
+    ["PATCH", "/schools/platform/authz-missing-school"],
+    ["POST", "/schools/platform/authz-missing-school/admins"],
+    ["GET", "/audit-logs"],
+    ["GET", "/audit-logs/platform"],
+    ["POST", "/invite-codes"],
+    ["GET", "/invite-codes"],
+    ["DELETE", "/invite-codes/authz-missing-invite"],
+    ["GET", "/chats"],
+    ["POST", "/chats"],
+    ["PATCH", "/chats/authz-missing-chat"],
+    ["POST", "/chats/authz-missing-chat/regenerate-code"],
+    ["DELETE", "/chats/authz-missing-chat"],
+    ["POST", "/chats/join"],
+    ["GET", "/chats/authz-missing-chat/messages"],
+    ["POST", "/chats/authz-missing-chat/messages"],
+    ["PATCH", "/chats/authz-missing-chat/messages/authz-missing-message"],
+    ["DELETE", "/chats/authz-missing-chat/messages/authz-missing-message"],
+    ["POST", "/chats/authz-missing-chat/messages/authz-missing-message/react"],
+    ["GET", "/qa/access"],
+    ["GET", "/qa/results?environment=development"],
+    ["PUT", "/qa/results/AUTH-001"],
+    ["GET", "/qa/bugs?environment=development"],
+    ["POST", "/qa/bugs"],
+    ["PATCH", "/qa/bugs/00000000-0000-4000-8000-000000000000"],
+  );
+  return checks;
 }
 
 function waitForExit(child, timeoutMs) {
@@ -162,6 +318,7 @@ async function assertProductionForgotPasswordDoesNotDiscloseToken() {
 async function run() {
   let server;
   let realtimeSocket;
+  const realtimeSockets = [];
   let output = "";
 
   try {
@@ -206,6 +363,20 @@ async function run() {
 
     const health = await request("/health");
     assert.equal(health.status, 200, "health endpoint should respond");
+    for (const [method, endpoint] of getProtectedRouteChecks()) {
+      const response = await request(endpoint, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: ["POST", "PATCH", "PUT"].includes(method)
+          ? JSON.stringify({})
+          : undefined,
+      });
+      assert.equal(
+        response.status,
+        401,
+        `${method} ${endpoint} must reject unauthenticated requests`,
+      );
+    }
     const allowedOrigin = await request("/health", {
       headers: { Origin: "http://localhost:5500" },
     });
@@ -369,6 +540,23 @@ async function run() {
       "Content-Type": "application/json",
       Authorization: `Bearer ${auth.token}`,
     };
+
+    const expiredToken = jwt.sign(
+      { id: auth.user.id, tokenVersion: auth.user.tokenVersion || 0 },
+      "smoke-test-secret",
+      { expiresIn: -1 },
+    );
+    const expiredSession = await request("/auth/me", {
+      headers: {
+        ...headers,
+        Authorization: `Bearer ${expiredToken}`,
+      },
+    });
+    assert.equal(
+      expiredSession.status,
+      401,
+      "expired bearer tokens must be rejected",
+    );
 
     const suspendedRegistration = await request("/auth/register", {
       method: "POST",
@@ -585,8 +773,20 @@ async function run() {
       "INSERT INTO classes (id, school_id, name, status, created_at, updated_at, extra_data) VALUES (?, ?, ?, ?, ?, ?, ?)",
     ).run(foreignClass.id, foreignClass.schoolId, foreignClass.name, "active", foreignCreatedAt, foreignCreatedAt, JSON.stringify({ teacherIds: [] }));
     tenantDatabase.prepare(
+      "INSERT INTO library_books (id, school_id, title, copies_total, copies_available, created_at, updated_at, extra_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run("foreign-school-book", foreignUser.schoolId, "Foreign Test Book", 1, 0, foreignCreatedAt, foreignCreatedAt, "{}");
+    tenantDatabase.prepare(
+      "INSERT INTO library_copies (id, school_id, book_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run("foreign-school-copy", foreignUser.schoolId, "foreign-school-book", "loaned", foreignCreatedAt, foreignCreatedAt);
+    tenantDatabase.prepare(
+      "INSERT INTO library_loans (id, school_id, copy_id, student_id, borrowed_at, due_at, created_at, updated_at, extra_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run("foreign-school-loan", foreignUser.schoolId, "foreign-school-copy", foreignStudent.id, foreignCreatedAt, new Date(Date.now() + 86400000).toISOString(), foreignCreatedAt, foreignCreatedAt, "{}");
+    const foreignPasswordHash = tenantDatabase
+      .prepare("SELECT password_hash FROM users WHERE id = ?")
+      .get(auth.user.id).password_hash;
+    tenantDatabase.prepare(
       "INSERT INTO users (id, school_id, name, email, password_hash, role_code, status, token_version, created_at, updated_at, extra_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(foreignUser.id, foreignUser.schoolId, foreignUser.name, foreignUser.email, "unused-test-hash", "admin", "active", 0, foreignCreatedAt, foreignCreatedAt, "{}");
+    ).run(foreignUser.id, foreignUser.schoolId, foreignUser.name, foreignUser.email, foreignPasswordHash, "admin", "active", 0, foreignCreatedAt, foreignCreatedAt, "{}");
     tenantDatabase.prepare(
       "INSERT INTO chats (id, school_id, name, invite_code, created_at, updated_at, extra_data) VALUES (?, ?, ?, ?, ?, ?, ?)",
     ).run(foreignChat.id, foreignChat.schoolId, foreignChat.name, foreignChat.inviteCode, foreignCreatedAt, foreignCreatedAt, JSON.stringify({ memberIds: foreignChat.memberIds }));
@@ -597,6 +797,25 @@ async function run() {
       "INSERT INTO audit_logs (id, school_id, actor_user_id, action, entity_type, entity_id, timestamp, metadata, created_at, updated_at, extra_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     ).run(foreignAuditEvent.id, foreignAuditEvent.schoolId, foreignAuditEvent.actorUserId, foreignAuditEvent.action, foreignAuditEvent.entityType, foreignAuditEvent.entityId, foreignAuditEvent.timestamp, "{}", foreignCreatedAt, foreignCreatedAt, "{}");
     tenantDatabase.close();
+
+    const foreignLoginResponse = await request("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: foreignUser.email,
+        password: originalPassword,
+      }),
+    });
+    assert.equal(
+      foreignLoginResponse.status,
+      200,
+      "the synthetic foreign-school account must sign in through the login route",
+    );
+    const foreignAuth = await foreignLoginResponse.json();
+    const foreignHeaders = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${foreignAuth.token}`,
+    };
 
     const roleRefreshDatabase = new Database(databasePath);
     roleRefreshDatabase
@@ -701,6 +920,59 @@ async function run() {
       404,
       "results must not reference another school's student",
     );
+    const gradeResponse = await request("/exams", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        studentId: student.id,
+        subject: "Mathematics",
+        examName: "Term 1 Test",
+        score: 80,
+        maxScore: 100,
+        term: "Term 1",
+      }),
+    });
+    assert.equal(gradeResponse.status, 201, "school admins should create grade records");
+    const grade = await gradeResponse.json();
+    assert.equal(grade.score, 80);
+    assert.equal(grade.maxScore, 100);
+
+    const invalidGradeResponse = await request("/exams", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        studentId: student.id,
+        subject: "Mathematics",
+        examName: "Invalid Score",
+        score: 101,
+        maxScore: 100,
+      }),
+    });
+    assert.equal(invalidGradeResponse.status, 400, "grades above the maximum score must be rejected");
+
+    const gradeListResponse = await request("/exams", { headers });
+    assert.equal(gradeListResponse.status, 200);
+    assert.ok(
+      (await gradeListResponse.json()).some((record) => record.id === grade.id),
+      "school admins should read their school's grade records",
+    );
+
+    const gradeUpdateResponse = await request(`/exams/${grade.id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ score: 92 }),
+    });
+    assert.equal(gradeUpdateResponse.status, 200);
+    assert.equal((await gradeUpdateResponse.json()).score, 92);
+
+    const gradeDeleteResponse = await request(`/exams/${grade.id}`, {
+      method: "DELETE",
+      headers,
+    });
+    assert.equal(gradeDeleteResponse.status, 204);
+    const deletedGradeResponse = await request(`/exams/${grade.id}`, { headers });
+    assert.equal(deletedGradeResponse.status, 404, "deleted grade records must not remain readable");
+
     const foreignClassAssignment = await request("/assignments", {
       method: "POST",
       headers,
@@ -894,6 +1166,23 @@ async function run() {
     });
     assert.equal(otherClassStudentResponse.status, 201);
     const otherClassStudent = await otherClassStudentResponse.json();
+    const parentUnlinkedStudent = await request(
+      `/students/${otherClassStudent.id}`,
+      { headers: parentHeaders },
+    );
+    assert.equal(
+      parentUnlinkedStudent.status,
+      404,
+      "parents must not view another student's record in the same school",
+    );
+    const parentStudentList = await request("/students", {
+      headers: parentHeaders,
+    });
+    assert.deepEqual(
+      (await parentStudentList.json()).map((record) => record.id),
+      [student.id],
+      "parent student lists must include only linked children",
+    );
     const teacherRegistration = await request("/auth/register", {
       method: "POST",
       headers,
@@ -998,6 +1287,462 @@ async function run() {
       403,
       "teachers must not record payments",
     );
+    const assignedFeeResponse = await request("/fees", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        studentId: student.id,
+        studentName: student.name,
+        class: assignedClass.name,
+        amount: 120,
+        status: "paid",
+        schoolId: foreignStudent.schoolId,
+      }),
+    });
+    assert.equal(assignedFeeResponse.status, 201);
+    const assignedFee = await assignedFeeResponse.json();
+    assert.equal(
+      assignedFee.schoolId,
+      auth.user.schoolId,
+      "fee creation must ignore a forged school id",
+    );
+    const unassignedFeeResponse = await request("/fees", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        studentId: otherClassStudent.id,
+        studentName: otherClassStudent.name,
+        class: otherClass.name,
+        amount: 80,
+        status: "outstanding",
+      }),
+    });
+    assert.equal(unassignedFeeResponse.status, 201);
+    const unassignedFee = await unassignedFeeResponse.json();
+    const foreignFeeResponse = await request("/fees", {
+      method: "POST",
+      headers: foreignHeaders,
+      body: JSON.stringify({
+        studentId: foreignStudent.id,
+        studentName: foreignStudent.name,
+        class: foreignStudent.class,
+        amount: 60,
+        status: "outstanding",
+        schoolId: auth.user.schoolId,
+      }),
+    });
+    assert.equal(foreignFeeResponse.status, 201);
+    const foreignSchoolFee = await foreignFeeResponse.json();
+    assert.equal(
+      foreignSchoolFee.schoolId,
+      foreignUser.schoolId,
+      "fee creation must derive ownership from the authenticated school",
+    );
+    const teacherFeeListResponse = await request(
+      "/fees?page=1&limit=100",
+      { headers: teacherHeaders },
+    );
+    assert.equal(teacherFeeListResponse.status, 200);
+    const teacherFeePage = await teacherFeeListResponse.json();
+    assert.deepEqual(
+      teacherFeePage.data.map((fee) => fee.id),
+      [assignedFee.id],
+      "teachers must only list fees for assigned-class students",
+    );
+    assert.equal(
+      teacherFeePage.meta.total,
+      1,
+      "fee pagination totals must exclude out-of-class and cross-school records",
+    );
+    const filteredOutOfClassFee = await request(
+      "/fees?filter%5Bclass%5D=Grade%208B",
+      { headers: teacherHeaders },
+    );
+    assert.deepEqual(
+      await filteredOutOfClassFee.json(),
+      [],
+      "class filters must not reveal fees for unassigned students",
+    );
+    const filteredOutOfClassStatusFee = await request(
+      "/fees?filter%5Bstatus%5D=outstanding",
+      { headers: teacherHeaders },
+    );
+    assert.deepEqual(
+      await filteredOutOfClassStatusFee.json(),
+      [],
+      "status filters must not reveal fees for unassigned or foreign students",
+    );
+    const filteredAssignedFee = await request(
+      "/fees?filter%5Bstatus%5D=paid",
+      { headers: teacherHeaders },
+    );
+    assert.deepEqual(
+      (await filteredAssignedFee.json()).map((fee) => fee.id),
+      [assignedFee.id],
+      "teachers may filter fees for assigned-class students",
+    );
+    const searchedUnassignedFee = await request(
+      "/fees?search=Unassigned%20Student",
+      { headers: teacherHeaders },
+    );
+    assert.deepEqual(
+      await searchedUnassignedFee.json(),
+      [],
+      "fee search must not disclose unassigned students",
+    );
+    const assignedFeeDetail = await request(`/fees/${assignedFee.id}`, {
+      headers: teacherHeaders,
+    });
+    assert.equal(
+      assignedFeeDetail.status,
+      200,
+      "teachers may read fees for assigned-class students",
+    );
+    const unassignedFeeDetail = await request(`/fees/${unassignedFee.id}`, {
+      headers: teacherHeaders,
+    });
+    assert.equal(
+      unassignedFeeDetail.status,
+      404,
+      "teachers must not read an unassigned student's fee by id",
+    );
+    const foreignFeeDetail = await request(`/fees/${foreignSchoolFee.id}`, {
+      headers: teacherHeaders,
+    });
+    assert.equal(
+      foreignFeeDetail.status,
+      404,
+      "teachers must not read another school's fee by id",
+    );
+    const teacherForeignFeeQuery = await request(
+      `/fees?search=Foreign%20Student&filter%5Bstatus%5D=outstanding&page=1&limit=1`,
+      { headers: teacherHeaders },
+    );
+    const teacherForeignFeePage = await teacherForeignFeeQuery.json();
+    assert.deepEqual(teacherForeignFeePage.data, []);
+    assert.equal(
+      teacherForeignFeePage.meta.total,
+      0,
+      "search and pagination metadata must exclude foreign fees",
+    );
+    const foreignAdminFeeList = await request("/fees", {
+      headers: foreignHeaders,
+    });
+    assert.deepEqual(
+      (await foreignAdminFeeList.json()).map((fee) => fee.id),
+      [foreignSchoolFee.id],
+      "foreign-school admins must only list fees from their own school",
+    );
+    const foreignAdminLocalFeeDetail = await request(
+      `/fees/${assignedFee.id}`,
+      { headers: foreignHeaders },
+    );
+    assert.equal(
+      foreignAdminLocalFeeDetail.status,
+      404,
+      "foreign-school admins must not read another school's fee by id",
+    );
+    const parentFeeList = await request("/fees", { headers: parentHeaders });
+    assert.deepEqual(
+      (await parentFeeList.json()).map((fee) => fee.id),
+      [assignedFee.id],
+      "parents must only list fees for linked children",
+    );
+    const parentUnlinkedFee = await request(`/fees/${unassignedFee.id}`, {
+      headers: parentHeaders,
+    });
+    assert.equal(
+      parentUnlinkedFee.status,
+      404,
+      "parents must not read an unlinked student's fee by id",
+    );
+    for (const [method, body] of [
+      ["PATCH", { status: "paid" }],
+      ["DELETE", undefined],
+    ]) {
+      const teacherFeeWrite = await request(`/fees/${assignedFee.id}`, {
+        method,
+        headers: teacherHeaders,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      assert.equal(
+        teacherFeeWrite.status,
+        403,
+        `teachers must not ${method.toLowerCase()} fee records`,
+      );
+    }
+    const libraryItemResponse = await request("/library", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        title: "School-wide Teacher Loan Test",
+        copiesTotal: 3,
+        copiesAvailable: 3,
+      }),
+    });
+    assert.equal(libraryItemResponse.status, 201);
+    const libraryItem = await libraryItemResponse.json();
+    const assignedLibraryLoanResponse = await request("/library-loans", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        studentId: student.id,
+        itemId: libraryItem.id,
+        borrowedDate: "2026-10-01T00:00:00.000Z",
+        dueDate: "2026-10-30T00:00:00.000Z",
+      }),
+    });
+    assert.equal(assignedLibraryLoanResponse.status, 201);
+    const assignedLibraryLoan = await assignedLibraryLoanResponse.json();
+    const teacherLibraryLoanResponse = await request("/library-loans", {
+      method: "POST",
+      headers: teacherHeaders,
+      body: JSON.stringify({
+        studentId: otherClassStudent.id,
+        itemId: libraryItem.id,
+        borrowedDate: "2026-10-02T00:00:00.000Z",
+        dueDate: "2026-10-31T00:00:00.000Z",
+        schoolId: foreignUser.schoolId,
+      }),
+    });
+    assert.equal(
+      teacherLibraryLoanResponse.status,
+      201,
+      "teachers may create loans for any student in their school",
+    );
+    const teacherLibraryLoan = await teacherLibraryLoanResponse.json();
+    assert.equal(
+      teacherLibraryLoan.schoolId,
+      auth.user.schoolId,
+      "loan creation must ignore a forged school id",
+    );
+    const teacherLibraryLoansResponse = await request(
+      "/library-loans?page=1&limit=100",
+      { headers: teacherHeaders },
+    );
+    assert.equal(teacherLibraryLoansResponse.status, 200);
+    const teacherLibraryLoans = await teacherLibraryLoansResponse.json();
+    assert.deepEqual(
+      teacherLibraryLoans.data.map((loan) => loan.id).sort(),
+      [assignedLibraryLoan.id, teacherLibraryLoan.id].sort(),
+      "teachers must retain school-wide library-loan visibility",
+    );
+    assert.equal(
+      teacherLibraryLoans.data.some((loan) => loan.id === "foreign-school-loan"),
+      false,
+      "teacher loan lists must exclude other schools",
+    );
+    for (const loan of [assignedLibraryLoan, teacherLibraryLoan]) {
+      const sameSchoolLoan = await request(`/library-loans/${loan.id}`, {
+        headers: teacherHeaders,
+      });
+      assert.equal(
+        sameSchoolLoan.status,
+        200,
+        "teachers may view any same-school library loan by id",
+      );
+    }
+    const parentLibraryLoansResponse = await request("/library-loans", {
+      headers: parentHeaders,
+    });
+    assert.deepEqual(
+      (await parentLibraryLoansResponse.json()).map((loan) => loan.id),
+      [assignedLibraryLoan.id],
+      "parents must only list library loans for linked children",
+    );
+    const parentUnlinkedLibraryLoan = await request(
+      `/library-loans/${teacherLibraryLoan.id}`,
+      { headers: parentHeaders },
+    );
+    assert.equal(
+      parentUnlinkedLibraryLoan.status,
+      404,
+      "parents must not read an unlinked student's library loan",
+    );
+    const foreignLibraryLoansResponse = await request("/library-loans", {
+      headers: foreignHeaders,
+    });
+    assert.deepEqual(
+      (await foreignLibraryLoansResponse.json()).map((loan) => loan.id),
+      ["foreign-school-loan"],
+      "the foreign admin must see only that school's library loans",
+    );
+    const foreignLoanFromSchoolA = await request(
+      "/library-loans/foreign-school-loan",
+      { headers: teacherHeaders },
+    );
+    assert.equal(
+      foreignLoanFromSchoolA.status,
+      404,
+      "teachers must not read another school's library loan by id",
+    );
+    const localStudentForeignBookLoan = await request("/library-loans", {
+      method: "POST",
+      headers: teacherHeaders,
+      body: JSON.stringify({
+        studentId: otherClassStudent.id,
+        itemId: "foreign-school-book",
+        borrowedDate: "2026-10-03T00:00:00.000Z",
+        dueDate: "2026-11-01T00:00:00.000Z",
+      }),
+    });
+    assert.equal(
+      localStudentForeignBookLoan.status,
+      404,
+      "teachers must not create a loan referencing another school's book",
+    );
+    const foreignStudentLocalBookLoan = await request("/library-loans", {
+      method: "POST",
+      headers: teacherHeaders,
+      body: JSON.stringify({
+        studentId: foreignStudent.id,
+        itemId: libraryItem.id,
+        borrowedDate: "2026-10-04T00:00:00.000Z",
+        dueDate: "2026-11-02T00:00:00.000Z",
+      }),
+    });
+    assert.equal(
+      foreignStudentLocalBookLoan.status,
+      404,
+      "teachers must not create a loan for another school's student",
+    );
+    const teacherLoanUpdate = await request(
+      `/library-loans/${teacherLibraryLoan.id}`,
+      {
+        method: "PATCH",
+        headers: teacherHeaders,
+        body: JSON.stringify({ returnedDate: "2026-10-05T00:00:00.000Z" }),
+      },
+    );
+    assert.equal(
+      teacherLoanUpdate.status,
+      200,
+      "teachers may update same-school loans across classes",
+    );
+    const teacherLoanDelete = await request(
+      `/library-loans/${teacherLibraryLoan.id}`,
+      { method: "DELETE", headers: teacherHeaders },
+    );
+    assert.equal(
+      teacherLoanDelete.status,
+      204,
+      "teachers may delete same-school loans across classes",
+    );
+    const foreignAdminCannotReadLocalLoan = await request(
+      `/library-loans/${assignedLibraryLoan.id}`,
+      { headers: foreignHeaders },
+    );
+    assert.equal(
+      foreignAdminCannotReadLocalLoan.status,
+      404,
+      "admins must not read another school's library loan by id",
+    );
+    const teacherDeleteAssignedLoan = await request(
+      `/library-loans/${assignedLibraryLoan.id}`,
+      { method: "DELETE", headers: teacherHeaders },
+    );
+    assert.equal(teacherDeleteAssignedLoan.status, 204);
+    const assignedClassAssignmentResponse = await request("/assignments", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        title: "Assigned class assignment",
+        classId: assignedClass.id,
+      }),
+    });
+    assert.equal(assignedClassAssignmentResponse.status, 201);
+    const assignedClassAssignment = await assignedClassAssignmentResponse.json();
+    const validSubmission = await request("/assignment-submissions", {
+      method: "POST",
+      headers: teacherHeaders,
+      body: JSON.stringify({
+        assignmentId: assignedClassAssignment.id,
+        studentId: student.id,
+        submitted: true,
+      }),
+    });
+    assert.equal(
+      validSubmission.status,
+      201,
+      "teachers may record submissions for students in the assignment's class",
+    );
+    const otherClassAssignmentResponse = await request("/assignments", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        title: "Other class assignment",
+        classId: otherClass.id,
+      }),
+    });
+    assert.equal(otherClassAssignmentResponse.status, 201);
+    const otherClassAssignment = await otherClassAssignmentResponse.json();
+    const teacherAssignments = await request("/assignments", {
+      headers: teacherHeaders,
+    });
+    assert.ok(
+      !(await teacherAssignments.json()).some(
+        (assignment) => assignment.id === otherClassAssignment.id,
+      ),
+      "teachers must not list assignments for another class",
+    );
+    const teacherOtherClassAssignment = await request(
+      `/assignments/${otherClassAssignment.id}`,
+      { headers: teacherHeaders },
+    );
+    assert.equal(
+      teacherOtherClassAssignment.status,
+      404,
+      "teachers must not read another class's assignment by id",
+    );
+    const teacherCreateOtherClassAssignment = await request("/assignments", {
+      method: "POST",
+      headers: teacherHeaders,
+      body: JSON.stringify({
+        title: "Unauthorized other class assignment",
+        classId: otherClass.id,
+      }),
+    });
+    assert.equal(
+      teacherCreateOtherClassAssignment.status,
+      403,
+      "teachers must not create assignments for another class",
+    );
+    const teacherUpdateOtherClassAssignment = await request(
+      `/assignments/${otherClassAssignment.id}`,
+      {
+        method: "PATCH",
+        headers: teacherHeaders,
+        body: JSON.stringify({ title: "Tampered assignment" }),
+      },
+    );
+    assert.equal(
+      teacherUpdateOtherClassAssignment.status,
+      404,
+      "teachers must not update another class's assignment",
+    );
+    const teacherDeleteOtherClassAssignment = await request(
+      `/assignments/${otherClassAssignment.id}`,
+      { method: "DELETE", headers: teacherHeaders },
+    );
+    assert.equal(
+      teacherDeleteOtherClassAssignment.status,
+      404,
+      "teachers must not delete another class's assignment",
+    );
+    const mismatchedSubmission = await request("/assignment-submissions", {
+      method: "POST",
+      headers: teacherHeaders,
+      body: JSON.stringify({
+        assignmentId: otherClassAssignment.id,
+        studentId: student.id,
+        submitted: true,
+      }),
+    });
+    assert.equal(
+      mismatchedSubmission.status,
+      404,
+      "teachers must not attach assigned students to another class's assignment",
+    );
 
     const inviteResponse = await request("/invite-codes", {
       method: "POST",
@@ -1036,6 +1781,24 @@ async function run() {
       404,
       "students must not view another student's record",
     );
+    const studentFeeList = await request("/fees", { headers: studentHeaders });
+    assert.deepEqual(
+      (await studentFeeList.json()).map((fee) => fee.id),
+      [assignedFee.id],
+      "students must only list their own fees",
+    );
+    const ownStudentFee = await request(`/fees/${assignedFee.id}`, {
+      headers: studentHeaders,
+    });
+    assert.equal(ownStudentFee.status, 200);
+    const otherStudentFee = await request(`/fees/${unassignedFee.id}`, {
+      headers: studentHeaders,
+    });
+    assert.equal(
+      otherStudentFee.status,
+      404,
+      "students must not read another student's fee",
+    );
 
     const schoolProfile = await request("/schools/me", { headers });
     assert.equal(schoolProfile.status, 200, "admin should read school profile");
@@ -1069,6 +1832,22 @@ async function run() {
       page.data[0].id,
       student.id,
       "pagination should return the matching student",
+    );
+    const filteredFeePageResponse = await request(
+      "/fees?page=1&limit=100&filter%5Bstatus%5D=paid",
+      { headers },
+    );
+    assert.equal(filteredFeePageResponse.status, 200);
+    const filteredFeePage = await filteredFeePageResponse.json();
+    assert.deepEqual(
+      filteredFeePage.data.map((fee) => fee.id),
+      [assignedFee.id],
+      "school-admin pagination must apply encoded fee filters",
+    );
+    assert.equal(
+      filteredFeePage.meta.total,
+      1,
+      "school-admin filtered counts must match filtered records",
     );
 
     const invalidFee = await request("/fees", {
@@ -1470,6 +2249,48 @@ async function run() {
       "invite creation and revocation should be auditable",
     );
 
+    const chatMemberDatabase = new Database(databasePath);
+    const chatMemberCredentials = chatMemberDatabase
+      .prepare("SELECT password_hash FROM users WHERE id = ?")
+      .get(foreignUser.id);
+    const chatMemberId = crypto.randomUUID();
+    const chatMemberCreatedAt = new Date().toISOString();
+    chatMemberDatabase.prepare(
+      "INSERT INTO users (id, school_id, name, email, password_hash, role_code, status, token_version, created_at, updated_at, extra_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+      chatMemberId,
+      repairedSchool.school.id,
+      "Realtime Chat Member",
+      "realtime-chat-member@example.test",
+      chatMemberCredentials.password_hash,
+      "parent",
+      "active",
+      0,
+      chatMemberCreatedAt,
+      chatMemberCreatedAt,
+      "{}",
+    );
+    chatMemberDatabase.close();
+    const chatMemberLogin = await request("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "realtime-chat-member@example.test",
+        password: originalPassword,
+      }),
+    });
+    assert.equal(
+      chatMemberLogin.status,
+      200,
+      "the synthetic same-school chat member must authenticate through the login route",
+    );
+    const chatMemberAuth = await chatMemberLogin.json();
+    assert.equal(chatMemberAuth.user.id, chatMemberId);
+    assert.equal(chatMemberAuth.user.schoolId, repairedSchool.school.id);
+    const chatMemberHeaders = {
+      ...headers,
+      Authorization: `Bearer ${chatMemberAuth.token}`,
+    };
     const chatResponse = await request("/chats", {
       method: "POST",
       headers,
@@ -1477,6 +2298,129 @@ async function run() {
     });
     assert.equal(chatResponse.status, 201, "admins should create a test chat");
     const testChat = await chatResponse.json();
+    assert.equal(
+      await waitForRealtimeClose(null),
+      4001,
+      "WebSocket connections without tokens must be rejected",
+    );
+    assert.equal(
+      await waitForRealtimeClose("malformed-token"),
+      4001,
+      "WebSocket connections with malformed tokens must be rejected",
+    );
+    assert.equal(
+      await waitForRealtimeClose(expiredToken),
+      4001,
+      "WebSocket connections with expired tokens must be rejected",
+    );
+    const adminChatSocket = await openRealtimeSocket(accessToken);
+    const parentChatSocket = await openRealtimeSocket(chatMemberAuth.token);
+    const oldSchoolParentSocket = await openRealtimeSocket(parentAuth.token);
+    const foreignChatSocket = await openRealtimeSocket(foreignAuth.token);
+    realtimeSockets.push(
+      adminChatSocket,
+      parentChatSocket,
+      oldSchoolParentSocket,
+      foreignChatSocket,
+    );
+    adminChatSocket.send("not-json");
+    adminChatSocket.send(JSON.stringify({ type: "join", chatId: testChat.id }));
+    parentChatSocket.send(JSON.stringify({ type: "join", chatId: testChat.id }));
+    oldSchoolParentSocket.send(
+      JSON.stringify({ type: "join", chatId: testChat.id }),
+    );
+    foreignChatSocket.send(JSON.stringify({ type: "join", chatId: testChat.id }));
+    await wait(75);
+    const adminChatNotice = nextRealtimeMessage(adminChatSocket);
+    const nonMemberChatNotice = expectNoRealtimeMessage(parentChatSocket);
+    const oldSchoolParentNotice = expectNoRealtimeMessage(oldSchoolParentSocket);
+    const foreignChatNotice = expectNoRealtimeMessage(foreignChatSocket);
+    const firstSocketMessageResponse = await request(
+      `/chats/${testChat.id}/messages`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ text: "Authorized socket notification" }),
+      },
+    );
+    assert.equal(firstSocketMessageResponse.status, 201);
+    assert.deepEqual(await adminChatNotice, {
+      type: "chat:update",
+      chatId: testChat.id,
+    });
+    await Promise.all([
+      nonMemberChatNotice,
+      oldSchoolParentNotice,
+      foreignChatNotice,
+    ]);
+    const nonMemberChatList = await request("/chats", {
+      headers: chatMemberHeaders,
+    });
+    assert.ok(
+      !(await nonMemberChatList.json()).some((chat) => chat.id === testChat.id),
+      "same-school nonmembers must not see private chats in their chat list",
+    );
+    const nonMemberChatMessages = await request(
+      `/chats/${testChat.id}/messages`,
+      { headers: chatMemberHeaders },
+    );
+    assert.equal(
+      nonMemberChatMessages.status,
+      404,
+      "same-school nonmembers must not read private chat messages",
+    );
+    const oldSchoolChatMessages = await request(
+      `/chats/${testChat.id}/messages`,
+      { headers: parentHeaders },
+    );
+    assert.equal(
+      oldSchoolChatMessages.status,
+      404,
+      "users from another school must not read private chat messages",
+    );
+    const crossSchoolChatMember = await request(`/chats/${testChat.id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ memberIds: [auth.user.id, parentAuth.user.id] }),
+    });
+    assert.equal(
+      crossSchoolChatMember.status,
+      404,
+      "admins must not add users from another school to a chat",
+    );
+    const addParentChatMember = await request(`/chats/${testChat.id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({
+        memberIds: [auth.user.id, chatMemberAuth.user.id],
+      }),
+    });
+    assert.equal(addParentChatMember.status, 200);
+    parentChatSocket.send(JSON.stringify({ type: "join", chatId: testChat.id }));
+    await wait(75);
+    const parentChatNotice = nextRealtimeMessage(parentChatSocket);
+    const forgedSocketMessageResponse = await request(
+      `/chats/${testChat.id}/messages`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          text: "Server-owned chat identity",
+          chatId: foreignChat.id,
+          schoolId: foreignUser.schoolId,
+          senderId: foreignUser.id,
+        }),
+      },
+    );
+    assert.equal(forgedSocketMessageResponse.status, 201);
+    const forgedSocketMessage = await forgedSocketMessageResponse.json();
+    assert.equal(forgedSocketMessage.chatId, testChat.id);
+    assert.equal(forgedSocketMessage.schoolId, repairedSchool.school.id);
+    assert.equal(forgedSocketMessage.senderId, auth.user.id);
+    assert.deepEqual(await parentChatNotice, {
+      type: "chat:update",
+      chatId: testChat.id,
+    });
     const updatedChatResponse = await request(`/chats/${testChat.id}`, {
       method: "PATCH",
       headers,
@@ -1493,6 +2437,204 @@ async function run() {
     assert.equal(
       (await updatedChatResponse.json()).name,
       "Updated Reaction Regression Chat",
+    );
+    const revokedMemberNoNotice = expectNoRealtimeMessage(parentChatSocket);
+    const postRevocationMessage = await request(
+      `/chats/${testChat.id}/messages`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ text: "Membership revoked notification test" }),
+      },
+    );
+    assert.equal(postRevocationMessage.status, 201);
+    await revokedMemberNoNotice;
+    // --- Security audit regression: chat membership revocation, joins, rotation, cleanup ---
+    const revocationChatResponse = await request("/chats", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        name: "Membership Revocation Regression Chat",
+        memberIds: [chatMemberAuth.user.id],
+      }),
+    });
+    assert.equal(revocationChatResponse.status, 201, "admins should create the revocation test chat");
+    const revocationChat = await revocationChatResponse.json();
+    const revocationInspector = new Database(databasePath, { readonly: true });
+    const revocationCountRows = (table) =>
+      revocationInspector
+        .prepare(`SELECT COUNT(*) AS total FROM ${table} WHERE chat_id = ?`)
+        .get(revocationChat.id).total;
+    const revocationForeignHeaders = {
+      ...headers,
+      Authorization: `Bearer ${foreignAuth.token}`,
+    };
+    const revocationThumbsUp = "\u{1F44D}";
+    const revocationJoin = (requestHeaders, code) =>
+      request("/chats/join", {
+        method: "POST",
+        headers: requestHeaders,
+        body: JSON.stringify({ code }),
+      });
+    try {
+      assert.equal(
+        revocationCountRows("chat_members"),
+        2,
+        "chat creation should store the admin and the member in chat_members",
+      );
+      const revocationFirstMessage = await request(
+        `/chats/${revocationChat.id}/messages`,
+        { method: "POST", headers, body: JSON.stringify({ text: "Message before revocation" }) },
+      );
+      assert.equal(revocationFirstMessage.status, 201);
+      const revocationMessage = await revocationFirstMessage.json();
+
+      const memberRead = await request(`/chats/${revocationChat.id}/messages`, {
+        headers: chatMemberHeaders,
+      });
+      assert.equal(memberRead.status, 200, "a valid same-school member must read messages");
+      assert.ok(
+        (await memberRead.json()).some((message) => message.id === revocationMessage.id),
+        "a valid member must see the chat's messages",
+      );
+      const memberWrite = await request(`/chats/${revocationChat.id}/messages`, {
+        method: "POST",
+        headers: chatMemberHeaders,
+        body: JSON.stringify({ text: "Message from a valid member" }),
+      });
+      assert.equal(memberWrite.status, 201, "a valid member must create messages");
+      const memberReact = await request(
+        `/chats/${revocationChat.id}/messages/${revocationMessage.id}/react`,
+        { method: "POST", headers: chatMemberHeaders, body: JSON.stringify({ emoji: revocationThumbsUp }) },
+      );
+      assert.equal(memberReact.status, 200, "a valid member must react to messages");
+
+      const foreignJoin = await revocationJoin(revocationForeignHeaders, revocationChat.inviteCode);
+      assert.equal(foreignJoin.status, 404, "another school's user must not join with a valid code");
+      const foreignRead = await request(`/chats/${revocationChat.id}/messages`, {
+        headers: revocationForeignHeaders,
+      });
+      assert.equal(foreignRead.status, 404, "another school's user must not read the chat");
+      const forgedMembersChat = await request("/chats", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "Forged Members Chat", memberIds: [foreignUser.id] }),
+      });
+      assert.equal(forgedMembersChat.status, 404, "forged foreign memberIds must be rejected on create");
+
+      const memberRemoval = await request(`/chats/${revocationChat.id}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ memberIds: [auth.user.id] }),
+      });
+      assert.equal(memberRemoval.status, 200, "admins should remove a member");
+      assert.equal(
+        revocationCountRows("chat_members"),
+        1,
+        "removing a member must also remove their chat_members row",
+      );
+      const revokedAttempts = [
+        ["GET", `/chats/${revocationChat.id}/messages`, null],
+        ["POST", `/chats/${revocationChat.id}/messages`, { text: "Should be refused" }],
+        ["PATCH", `/chats/${revocationChat.id}/messages/${revocationMessage.id}`, { text: "Edited" }],
+        ["DELETE", `/chats/${revocationChat.id}/messages/${revocationMessage.id}`, null],
+        ["POST", `/chats/${revocationChat.id}/messages/${revocationMessage.id}/react`, { emoji: revocationThumbsUp }],
+      ];
+      for (const [method, route, body] of revokedAttempts) {
+        const attempt = await request(route, {
+          method,
+          headers: chatMemberHeaders,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        assert.equal(attempt.status, 404, `removed member must not ${method} ${route}`);
+      }
+      const removedList = await request("/chats", { headers: chatMemberHeaders });
+      assert.ok(
+        !(await removedList.json()).some((chat) => chat.id === revocationChat.id),
+        "a removed member must not see the chat in their list",
+      );
+      const afterRemovalMessages = await (
+        await request(`/chats/${revocationChat.id}/messages`, { headers })
+      ).json();
+      assert.equal(afterRemovalMessages.length, 2, "refused requests must not change the chat");
+      assert.equal(
+        afterRemovalMessages.find((message) => message.id === revocationMessage.id).text,
+        "Message before revocation",
+      );
+
+      const oldInviteCode = revocationChat.inviteCode;
+      const rotation = await request(`/chats/${revocationChat.id}/regenerate-code`, {
+        method: "POST",
+        headers,
+      });
+      assert.equal(rotation.status, 200);
+      const rotatedChat = await rotation.json();
+      assert.notEqual(rotatedChat.inviteCode, oldInviteCode, "rotation must issue a new code");
+      const oldCodeJoin = await revocationJoin(chatMemberHeaders, oldInviteCode);
+      assert.equal(oldCodeJoin.status, 404, "the old invite code must stop working after rotation");
+      const stillOutside = await request(`/chats/${revocationChat.id}/messages`, {
+        headers: chatMemberHeaders,
+      });
+      assert.equal(stillOutside.status, 404, "a rejected old code must not grant access");
+      const newCodeJoin = await revocationJoin(chatMemberHeaders, rotatedChat.inviteCode);
+      assert.equal(newCodeJoin.status, 200, "the new invite code must work");
+      const rejoinedRead = await request(`/chats/${revocationChat.id}/messages`, {
+        headers: chatMemberHeaders,
+      });
+      assert.equal(rejoinedRead.status, 200, "a member who joined by code must read messages");
+      assert.equal(revocationCountRows("chat_members"), 2, "joining must store a chat_members row");
+
+      const revocationDelete = await request(`/chats/${revocationChat.id}`, {
+        method: "DELETE",
+        headers,
+      });
+      assert.equal(revocationDelete.status, 204);
+      assert.equal(revocationCountRows("chat_messages"), 0, "deleting a chat must remove its messages");
+      assert.equal(revocationCountRows("chat_members"), 0, "deleting a chat must remove its members");
+      assert.equal(
+        revocationInspector.prepare("SELECT COUNT(*) AS total FROM chats WHERE id = ?").get(revocationChat.id).total,
+        0,
+        "the chat row itself must be gone",
+      );
+      const deletedRead = await request(`/chats/${revocationChat.id}/messages`, {
+        headers: chatMemberHeaders,
+      });
+      assert.equal(deletedRead.status, 404, "a deleted chat must not be readable");
+      const revocationAudit = await (
+        await request("/audit-logs?page=1&limit=100", { headers })
+      ).json();
+      assert.deepEqual(
+        revocationAudit.data
+          .filter((event) => event.entityId === revocationChat.id)
+          .map((event) => event.action)
+          .sort(),
+        ["CHAT_CREATED", "CHAT_DELETED", "CHAT_INVITE_CODE_REGENERATED", "CHAT_UPDATED"].sort(),
+        "the revocation chat's lifecycle should be audited",
+      );
+    } finally {
+      revocationInspector.close();
+      await request(`/chats/${revocationChat.id}`, { method: "DELETE", headers }).catch(() => {});
+    }
+    const parentLogout = await request("/auth/logout", {
+      method: "POST",
+      headers: chatMemberHeaders,
+    });
+    assert.equal(parentLogout.status, 200);
+    const revokedParentSocketClose = new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("WebSocket remained open after session revocation")),
+        3000,
+      );
+      parentChatSocket.once("close", (code) => {
+        clearTimeout(timer);
+        resolve(code);
+      });
+      parentChatSocket.send(JSON.stringify({ type: "join", chatId: testChat.id }));
+    });
+    assert.equal(
+      await revokedParentSocketClose,
+      4001,
+      "WebSocket joins must revalidate revoked sessions",
     );
     const regeneratedCodeResponse = await request(
       `/chats/${testChat.id}/regenerate-code`,
@@ -1569,6 +2711,7 @@ async function run() {
         "CHAT_DELETED",
         "CHAT_INVITE_CODE_REGENERATED",
         "CHAT_UPDATED",
+        "CHAT_UPDATED",
       ].sort(),
       "chat creation, changes, invite rotation, and deletion should be auditable",
     );
@@ -1610,6 +2753,9 @@ async function run() {
   } finally {
     if (realtimeSocket && realtimeSocket.readyState !== WebSocket.CLOSED) {
       realtimeSocket.terminate();
+    }
+    for (const socket of realtimeSockets) {
+      if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
     }
     try {
       if (server) await stopServer(server);

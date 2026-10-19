@@ -142,4 +142,7 @@
 
 @media (max-width: 480px) {
   .submission-row { grid-template-columns: 1fr; }
+  .stat-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .stat-card { min-width: 0; padding: 12px 8px; }
+  .stat-label { overflow-wrap: anywhere; }
 }

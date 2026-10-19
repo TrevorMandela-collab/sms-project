@@ -105,6 +105,29 @@
 
           <section class="qa-panel" id="qaSuites" aria-labelledby="qaSuitesTitle">
             <h2 id="qaSuitesTitle">Test suites</h2>
+            <p class="qa-case-label">Priority categories</p>
+            <div
+              class="qa-priority-filters"
+              id="qaPriorityFilters"
+              role="group"
+              aria-label="Filter test cases by priority"
+            ></div>
+            <label class="qa-case-label" for="qaTestSearch">Search test cases</label>
+            <input
+              class="qa-input qa-test-search"
+              id="qaTestSearch"
+              type="search"
+              placeholder="Search by ID, title, suite, steps, or expected result"
+              autocomplete="off"
+              aria-describedby="qaTestSearchStatus"
+            />
+            <p
+              class="qa-muted qa-search-status"
+              id="qaTestSearchStatus"
+              role="status"
+              aria-live="polite"
+            >Type to find a test case.</p>
+            <ul class="qa-search-results" id="qaTestSearchResults" hidden></ul>
             <div id="qaSuitesList"></div>
             <p class="qa-muted">Test cases are loading...</p>
           </section>
@@ -219,6 +242,8 @@
     <script src="../shared/auth-client.js"></script>
     <script src="../shared/auth-guard.js"></script>
     <script src="test-cases.js"></script>
+    <script src="test-case-search.js"></script>
+    <script src="workspace-access.js"></script>
     <script src="script.js"></script>
   </body>
 </html>
