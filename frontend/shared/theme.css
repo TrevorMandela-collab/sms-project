@@ -1606,6 +1606,106 @@ body::before {
   animation: sms-pop-in 0.35s ease both;
 }
 
+@keyframes sms-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ledger-table tbody tr,
+.platform-table tbody tr,
+.event-row,
+.announcement-card,
+.timetable-day {
+  animation: sms-content-in 0.34s ease both;
+}
+.ledger-table tbody tr:nth-child(2),
+.platform-table tbody tr:nth-child(2),
+.event-row:nth-child(2),
+.announcement-card:nth-child(2),
+.timetable-day:nth-child(2) {
+  animation-delay: 0.04s;
+}
+.ledger-table tbody tr:nth-child(3),
+.platform-table tbody tr:nth-child(3),
+.event-row:nth-child(3),
+.announcement-card:nth-child(3),
+.timetable-day:nth-child(3) {
+  animation-delay: 0.08s;
+}
+.ledger-table tbody tr:nth-child(4),
+.platform-table tbody tr:nth-child(4),
+.event-row:nth-child(4),
+.announcement-card:nth-child(4),
+.timetable-day:nth-child(4) {
+  animation-delay: 0.12s;
+}
+.ledger-table tbody tr:nth-child(5),
+.platform-table tbody tr:nth-child(5),
+.event-row:nth-child(5),
+.announcement-card:nth-child(5),
+.timetable-day:nth-child(5) {
+  animation-delay: 0.16s;
+}
+.ledger-table tbody tr:nth-child(6),
+.platform-table tbody tr:nth-child(6),
+.event-row:nth-child(6),
+.announcement-card:nth-child(6),
+.timetable-day:nth-child(6) {
+  animation-delay: 0.2s;
+}
+
+.portal-tab,
+.child-chip,
+.cs-tab,
+.events-filters button,
+.events-primary,
+.events-secondary,
+.event-actions button {
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    color 0.18s ease,
+    background-color 0.18s ease,
+    border-color 0.18s ease;
+}
+.portal-tab:hover,
+.child-chip:hover,
+.cs-tab:hover,
+.events-filters button:hover,
+.events-primary:hover,
+.events-secondary:hover,
+.event-actions button:hover {
+  transform: translateY(-2px);
+}
+.portal-tab:active,
+.child-chip:active,
+.cs-tab:active,
+.events-filters button:active,
+.events-primary:active,
+.events-secondary:active,
+.event-actions button:active {
+  transform: translateY(0) scale(0.98);
+}
+.announcement-card,
+.event-row,
+.timetable-day {
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+.announcement-card:hover,
+.event-row:hover,
+.timetable-day:hover {
+  transform: translateY(-2px);
+}
+
 html.reduce-motion *,
 html.reduce-motion *::before,
 html.reduce-motion *::after {
