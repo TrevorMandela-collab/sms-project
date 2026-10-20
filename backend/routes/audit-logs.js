@@ -9,6 +9,32 @@ const {
 const router = express.Router();
 
 router.get(
+  "/filters",
+  requireAuth,
+  requireRole("admin"),
+  async (req, res, next) => {
+    if (!req.user.schoolId) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: "SCHOOL_REQUIRED",
+          message: "Your account must be linked to a school.",
+        },
+      });
+    }
+    try {
+      const rows = await db.all(
+        "SELECT DISTINCT action FROM audit_logs WHERE school_id = ? AND action IS NOT NULL AND action <> '' ORDER BY action LIMIT 100",
+        [req.user.schoolId],
+      );
+      return res.json({ actions: rows.map((row) => row.action) });
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
+
+router.get(
   "/platform",
   requireAuth,
   requirePlatformAdmin,
@@ -76,6 +102,15 @@ router.get("/", requireAuth, requireRole("admin"), async (req, res, next) => {
         error.code = "INVALID_DATE_FILTER";
         throw error;
       }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        const calendarDate = new Date(`${value}T00:00:00.000Z`);
+        if (calendarDate.toISOString().slice(0, 10) !== value) {
+          const error = new Error(`${fieldName} must be a valid calendar date.`);
+          error.statusCode = 400;
+          error.code = "INVALID_DATE_FILTER";
+          throw error;
+        }
+      }
       const parsed = new Date(value);
       if (fieldName === "to" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
         parsed.setUTCHours(23, 59, 59, 999);
@@ -95,10 +130,20 @@ router.get("/", requireAuth, requireRole("admin"), async (req, res, next) => {
       });
     }
 
-    const action = req.query.action ? String(req.query.action).trim().slice(0, 80) : null;
-    const entityType = req.query.entityType
-      ? String(req.query.entityType).trim().slice(0, 80)
-      : null;
+    const textFilter = (value, fieldName, maxLength) => {
+      if (value === undefined) return null;
+      if (typeof value !== "string" || value.length > maxLength) {
+        const error = new Error(`${fieldName} must be text no longer than ${maxLength} characters.`);
+        error.statusCode = 400;
+        error.code = "INVALID_AUDIT_FILTER";
+        throw error;
+      }
+      return value.trim() || null;
+    };
+    const action = textFilter(req.query.action, "Action", 80);
+    const entityType = textFilter(req.query.entityType, "Entity", 80);
+    const entityId = textFilter(req.query.entityId, "Target", 160);
+    const actorUserId = textFilter(req.query.actorUserId, "Actor", 160);
     const timestampRange = {};
     if (from !== null) timestampRange.from = new Date(from).toISOString();
     if (to !== null) timestampRange.to = new Date(to).toISOString();
@@ -106,7 +151,7 @@ router.get("/", requireAuth, requireRole("admin"), async (req, res, next) => {
       schoolId: req.user.schoolId,
       page,
       limit,
-      filters: { action, entityType },
+      filters: { action, entityType, entityId, actorUserId },
       rangeFilters: { timestamp: timestampRange },
       sortField: "timestamp",
       descending: true,

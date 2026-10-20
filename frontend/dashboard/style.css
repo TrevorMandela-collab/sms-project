@@ -1523,6 +1523,166 @@ button {
   }
 }
 
+.dashboard-customize-button,
+.analytics-controls button,
+.analytics-controls select,
+.analytics-controls input,
+.dashboard-widget-dialog button {
+  min-height: 38px;
+  border: 1px solid #d7e0e4;
+  border-radius: 5px;
+  background: #fff;
+  color: #31434d;
+  font: 600 0.74rem "DM Sans", sans-serif;
+}
+.dashboard-customize-button {
+  padding: 0 12px;
+}
+.analytics-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid #e5ebee;
+  border-radius: 6px;
+  background: #fff;
+  color: #536673;
+  font-size: 0.74rem;
+}
+.analytics-controls > label {
+  color: #31434d;
+  font-weight: 700;
+}
+.analytics-controls select,
+.analytics-controls input {
+  padding: 0 9px;
+}
+.analytics-controls #customAnalyticsDates {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.analytics-controls #customAnalyticsDates[hidden] {
+  display: none;
+}
+.analytics-controls p {
+  flex: 1 1 100%;
+  margin: 0;
+  color: #71808f;
+  font-size: 0.7rem;
+}
+.finance-data-note {
+  margin: 10px 0 0;
+  color: #71808f;
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+.dashboard-widget-handle {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0 8px;
+  border: 1px solid #d7e0e4;
+  border-radius: 5px;
+  background: #fff;
+  color: #536673;
+  cursor: grab;
+  font: 600 0.7rem "DM Sans", sans-serif;
+}
+.dashboard-widget-handle:focus-visible,
+.dashboard-customize-button:focus-visible,
+.analytics-controls :focus-visible,
+.dashboard-widget-dialog :focus-visible {
+  outline: 3px solid #237c78;
+  outline-offset: 2px;
+}
+.dashboard-widget-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(80vh, 720px);
+  padding: 22px;
+  border: 1px solid #d7e0e4;
+  border-radius: 10px;
+  color: #17212b;
+  box-shadow: 0 24px 60px rgba(27, 48, 61, 0.22);
+}
+.dashboard-widget-dialog::backdrop {
+  background: rgba(14, 30, 38, 0.48);
+}
+.dashboard-widget-dialog-heading,
+.dashboard-widget-dialog-actions,
+.dashboard-widget-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dashboard-widget-dialog-heading {
+  margin-bottom: 16px;
+}
+.dashboard-widget-dialog-heading h2 {
+  margin: 4px 0;
+  font: 700 1.2rem "Manrope", sans-serif;
+}
+.dashboard-widget-dialog-heading p {
+  margin: 0;
+  color: #71808f;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+.dashboard-widget-dialog button {
+  padding: 0 11px;
+  cursor: pointer;
+}
+.dashboard-widget-row {
+  min-height: 54px;
+  padding: 8px 0;
+  border-top: 1px solid #e5ebee;
+}
+.dashboard-widget-row label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  color: #31434d;
+  font-size: 0.8rem;
+}
+.dashboard-widget-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: #237c78;
+}
+.dashboard-widget-row-controls {
+  display: flex;
+  gap: 6px;
+}
+.dashboard-widget-dialog-actions {
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+.dashboard-widget-dialog-actions #resetWidgetLayout {
+  margin-right: auto;
+}
+[data-dashboard-widget].is-dragging {
+  opacity: 0.55;
+}
+[data-dashboard-widget].is-drop-target {
+  outline: 2px dashed #237c78;
+  outline-offset: 3px;
+}
+[data-dashboard-widget][hidden] {
+  display: none !important;
+}
+.dashboard-chart-link {
+  color: inherit;
+  text-decoration: none;
+}
+.dashboard-chart-link:focus-visible {
+  outline: 3px solid #237c78;
+  outline-offset: 3px;
+}
+
 /* Dashboard motion choreography */
 @keyframes dashboard-rise {
   from {
@@ -1767,5 +1927,11 @@ button {
     left: 16px;
     width: auto;
     max-width: 420px;
+  }
+}
+
+@media (max-width: 400px) {
+  .notification-trigger i {
+    right: 0;
   }
 }

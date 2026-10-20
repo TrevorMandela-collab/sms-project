@@ -686,10 +686,52 @@ async function run() {
       ),
       "student creation should be auditable",
     );
+    const auditFilterOptions = await request("/audit-logs/filters", {
+      headers,
+    });
+    assert.equal(auditFilterOptions.status, 200);
+    assert.ok(
+      (await auditFilterOptions.json()).actions.includes("STUDENTS_CREATED"),
+      "audit action options should come from this school's recorded actions",
+    );
+    const auditFilterQuery = new URLSearchParams({
+      action: "STUDENTS_CREATED",
+      entityType: "students",
+      entityId: student.id,
+      actorUserId: auth.user.id,
+      from: "2000-01-01",
+      to: "2099-12-31",
+    });
+    const combinedAuditFilter = await request(
+      `/audit-logs?page=1&limit=10&${auditFilterQuery}`,
+      { headers },
+    );
+    assert.equal(combinedAuditFilter.status, 200);
+    const combinedAuditPage = await combinedAuditFilter.json();
+    assert.equal(combinedAuditPage.meta.total, 1);
+    assert.equal(combinedAuditPage.data[0].entityId, student.id);
+    const mismatchedAuditActor = await request(
+      `/audit-logs?${new URLSearchParams({
+        action: "STUDENTS_CREATED",
+        actorUserId: "not-the-actor",
+      })}`,
+      { headers },
+    );
+    assert.equal((await mismatchedAuditActor.json()).meta.total, 0);
     const invalidAuditDate = await request("/audit-logs?from=not-a-date", {
       headers,
     });
     assert.equal(invalidAuditDate.status, 400, "audit date filters should be validated");
+    const impossibleAuditDate = await request(
+      "/audit-logs?from=2026-02-30",
+      { headers },
+    );
+    assert.equal(impossibleAuditDate.status, 400);
+    const invalidAuditRange = await request(
+      "/audit-logs?from=2026-10-02&to=2026-10-01",
+      { headers },
+    );
+    assert.equal(invalidAuditRange.status, 400);
     const unauthorizedAuditLogs = await request("/audit-logs", {
       headers: {
         "Content-Type": "application/json",

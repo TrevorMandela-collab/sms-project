@@ -24,11 +24,21 @@
         <form class="audit-filters" id="auditFilters">
           <label>
             Action
-            <input name="action" type="search" maxlength="80" placeholder="e.g. LOGIN" />
+            <select name="action" id="actionFilter">
+              <option value="">All recorded actions</option>
+            </select>
           </label>
           <label>
             Entity
             <input name="entityType" type="search" maxlength="80" placeholder="e.g. students" />
+          </label>
+          <label>
+            Target ID
+            <input name="entityId" type="search" maxlength="160" />
+          </label>
+          <label>
+            Actor user ID
+            <input name="actorUserId" type="search" maxlength="160" />
           </label>
           <label>
             From
@@ -41,6 +51,10 @@
           <button type="submit">Apply filters</button>
           <button class="audit-reset" id="resetFilters" type="button">Clear</button>
         </form>
+        <p class="audit-filter-message" id="auditFilterMessage" role="status" aria-live="polite"></p>
+        <p class="audit-active-filters" id="activeAuditFilters" role="status" aria-live="polite">
+          Showing all available audit activity.
+        </p>
 
         <section class="audit-panel" aria-labelledby="auditTableTitle">
           <div class="audit-panel-heading">

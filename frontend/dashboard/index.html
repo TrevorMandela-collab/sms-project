@@ -24,6 +24,7 @@
     <script defer src="../shared/auth-guard.js"></script>
     <script defer src="../shared/sidebar.js"></script>
     <script defer src="../shared/vendor/chart.umd.js"></script>
+    <script defer src="dashboard-state.js"></script>
     <script defer src="script.js"></script>
   </head>
   <body>
@@ -158,6 +159,9 @@
             >
               ⌕
             </button>
+            <button class="dashboard-customize-button" id="customizeDashboard" type="button">
+              Customize dashboard
+            </button>
             <button
               class="icon-action notification-trigger"
               id="notificationButton"
@@ -194,9 +198,30 @@
             </div>
           </div>
 
+          <section class="analytics-controls" aria-label="Analytics date range">
+            <label for="analyticsRange">Analytics period</label>
+            <select id="analyticsRange">
+              <option value="7">Last 7 days</option>
+              <option value="30" selected>Last 30 days</option>
+              <option value="custom">Custom range</option>
+            </select>
+            <div id="customAnalyticsDates" hidden>
+              <label for="analyticsStart">From</label>
+              <input id="analyticsStart" type="date" />
+              <label for="analyticsEnd">To</label>
+              <input id="analyticsEnd" type="date" />
+              <button id="applyAnalyticsRange" type="button">Apply dates</button>
+            </div>
+            <p id="analyticsRangeStatus" role="status" aria-live="polite">
+              Charts include dated records in the selected period. Dates use this device's local calendar; student and teacher totals show current enrollment.
+            </p>
+          </section>
+
           <section
             class="section-block"
             id="pulse"
+            data-dashboard-widget="pulse"
+            data-widget-group="workspace"
             aria-labelledby="pulseTitle"
           >
             <div class="section-heading">
@@ -230,7 +255,7 @@
                   <span class="metric-icon">₵</span
                   ><span class="trend trend--neutral">Recorded</span>
                 </div>
-                <strong id="metricFees">—</strong><span>Fees collected</span
+                <strong id="metricFees">—</strong><span>Fee amount marked paid</span
                 ><small id="metricFeesNote">Loading fee records…</small>
               </article>
               <article class="pulse-card">
@@ -252,9 +277,11 @@
             </div>
           </section>
 
-          <div class="priority-grid">
+          <div class="priority-grid" data-widget-container="priority">
             <section
               class="panel attention-panel"
+              data-dashboard-widget="attention"
+              data-widget-group="priority"
               aria-labelledby="attentionTitle"
             >
               <div class="section-heading">
@@ -268,7 +295,10 @@
                 <p class="dashboard-empty">Loading school alerts…</p>
               </div>
             </section>
-            <section class="panel actions-panel" aria-labelledby="actionsTitle">
+            <section class="panel actions-panel"
+              data-dashboard-widget="actions"
+              data-widget-group="priority"
+              aria-labelledby="actionsTitle">
               <div class="section-heading">
                 <div>
                   <span class="section-kicker">Shortcuts</span>
@@ -292,8 +322,8 @@
                   <span>✓</span><strong>Mark attendance</strong
                   ><small>Today's register</small></button
                 ><button class="quick-action" data-href="../fees/index.html">
-                  <span>₵</span><strong>Record payment</strong
-                  ><small>Update finance</small></button
+                  <span>₵</span><strong>Manage fees</strong
+                  ><small>Review fee records</small></button
                 ><button
                   class="quick-action"
                   data-href="../announcements/index.html"
@@ -308,15 +338,17 @@
             </section>
           </div>
 
-          <div class="analytics-grid">
+          <div class="analytics-grid" data-widget-container="analytics">
             <section
               class="panel chart-panel"
+              data-dashboard-widget="attendance"
+              data-widget-group="analytics"
               aria-labelledby="attendanceTitle"
             >
               <div class="section-heading">
                 <div>
                   <span class="section-kicker">Daily register</span>
-                  <h2 id="attendanceTitle">Today's Attendance</h2>
+                  <h2 id="attendanceTitle">Attendance Trends</h2>
                 </div>
                 <button
                   class="outline-button"
@@ -327,7 +359,7 @@
               </div>
               <div class="chart-summary">
                 <strong id="attendanceSummary">—</strong
-                ><span class="trend trend--neutral" id="attendanceTrend">Today</span
+                ><span class="trend trend--neutral" id="attendanceTrend">Selected period</span
                 ><small id="attendanceSummaryNote">No attendance records loaded</small>
               </div>
               <div class="chart-wrap">
@@ -342,6 +374,8 @@
             </section>
             <section
               class="panel chart-panel"
+              data-dashboard-widget="performance"
+              data-widget-group="analytics"
               aria-labelledby="performanceTitle"
             >
               <div class="section-heading">
@@ -355,26 +389,11 @@
               </div>
               <div class="chart-summary">
                 <strong id="performanceSummary">—</strong
-                ><span class="trend trend--neutral">Current records</span
+                ><span class="trend trend--neutral">Selected period</span
                 ><small>Average score across assessed subjects</small>
               </div>
               <div class="performance-list" id="performanceList">
-                <div>
-                  <span>Mathematics</span><b>74%</b
-                  ><i><em style="width: 74%"></em></i>
-                </div>
-                <div>
-                  <span>English</span><b>71%</b
-                  ><i><em style="width: 71%"></em></i>
-                </div>
-                <div>
-                  <span>Science</span><b>69%</b
-                  ><i><em style="width: 69%"></em></i>
-                </div>
-                <div>
-                  <span>Social Studies</span><b>66%</b
-                  ><i><em style="width: 66%"></em></i>
-                </div>
+                <p class="dashboard-empty">Loading assessment data…</p>
               </div>
               <div class="mini-bar-chart">
                 <canvas
@@ -383,11 +402,14 @@
                 ></canvas>
               </div>
             </section>
-            <section class="panel finance-panel" aria-labelledby="financeTitle">
+            <section class="panel finance-panel"
+              data-dashboard-widget="finance"
+              data-widget-group="analytics"
+              aria-labelledby="financeTitle">
               <div class="section-heading">
                 <div>
-                  <span class="section-kicker">Term finance</span>
-                  <h2 id="financeTitle">Finance Overview</h2>
+                  <span class="section-kicker">Selected date range</span>
+                  <h2 id="financeTitle">Fee Records Overview</h2>
                 </div>
                 <button class="outline-button" data-href="../fees/index.html">
                   View finance
@@ -395,10 +417,13 @@
               </div>
               <div class="finance-stats" id="financeStats">
                 <div><small>Total expected</small><strong>—</strong></div>
-                <div><small>Collected</small><strong>—</strong></div>
-                <div><small>Outstanding</small><strong>—</strong></div>
-                <div><small>Collection rate</small><strong>—</strong></div>
+                <div><small>Marked paid</small><strong>—</strong></div>
+                <div><small>Amount on not-fully-paid records</small><strong>—</strong></div>
+                <div><small>Paid amount share</small><strong>—</strong></div>
               </div>
+              <p class="finance-data-note">
+                These are fee-record status totals, not a payment ledger. Exact remaining amounts for partial records are not stored here.
+              </p>
               <div class="finance-chart">
                 <canvas
                   id="financeChart"
@@ -411,8 +436,11 @@
             </section>
           </div>
 
-          <div class="lower-grid">
-            <section class="panel feed-panel" aria-labelledby="activityTitle">
+          <div class="lower-grid" data-widget-container="lower">
+            <section class="panel feed-panel"
+              data-dashboard-widget="activity"
+              data-widget-group="lower"
+              aria-labelledby="activityTitle">
               <div class="section-heading">
                 <div>
                   <span class="section-kicker">Live feed</span>
@@ -428,6 +456,8 @@
             </section>
             <section
               class="panel events-panel"
+              data-dashboard-widget="events"
+              data-widget-group="lower"
               id="events"
               aria-labelledby="eventsTitle"
             >
@@ -444,7 +474,10 @@
                 <p class="dashboard-empty">Loading upcoming events…</p>
               </div>
             </section>
-            <section class="panel audit-panel" aria-labelledby="auditTitle">
+            <section class="panel audit-panel"
+              data-dashboard-widget="audit"
+              data-widget-group="lower"
+              aria-labelledby="auditTitle">
               <div class="section-heading">
                 <div>
                   <span class="section-kicker">Traceability</span>
@@ -479,12 +512,29 @@
           type="search"
           placeholder="Search students, teachers, fees, exams..."
           autofocus
+          aria-controls="searchResults"
+          aria-describedby="searchResults"
         />
-        <div class="search-results" id="searchResults">
+        <div class="search-results" id="searchResults" role="status" aria-live="polite">
           <p>Try “Brian”, “attendance”, or “fees”.</p>
         </div>
       </div>
     </div>
+    <dialog class="dashboard-widget-dialog" id="dashboardWidgetDialog" aria-labelledby="widgetDialogTitle">
+      <div class="dashboard-widget-dialog-heading">
+        <div>
+          <span class="section-kicker">Personalize</span>
+          <h2 id="widgetDialogTitle">Dashboard widgets</h2>
+          <p>Show, hide, or reorder widgets. Your layout is saved on this device for your account.</p>
+        </div>
+        <button id="closeWidgetDialog" type="button" aria-label="Close dashboard customization">×</button>
+      </div>
+      <div id="dashboardWidgetList"></div>
+      <div class="dashboard-widget-dialog-actions">
+        <button id="resetWidgetLayout" type="button">Reset to default</button>
+        <button id="doneWidgetLayout" type="button">Done</button>
+      </div>
+    </dialog>
     <div class="notification-panel" id="notificationPanel">
       <div class="notification-head">
         <div>

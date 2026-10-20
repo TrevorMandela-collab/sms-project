@@ -51,7 +51,7 @@
 
 .audit-filters {
   display: grid;
-  grid-template-columns: minmax(150px, 1.2fr) minmax(140px, 1fr) repeat(2, minmax(130px, 0.8fr)) auto auto;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: end;
   gap: 12px;
   margin: 28px 0 18px;
@@ -69,8 +69,10 @@
   font-weight: 650;
 }
 
-.audit-filters input {
+.audit-filters input,
+.audit-filters select {
   width: 100%;
+  min-width: 0;
   min-height: 40px;
   padding: 0 10px;
   border: 1px solid #dbe4e8;
@@ -81,6 +83,7 @@
 }
 
 .audit-filters input:focus-visible,
+.audit-filters select:focus-visible,
 .audit-filters button:focus-visible,
 .audit-refresh:focus-visible,
 .audit-pagination button:focus-visible {
@@ -104,6 +107,13 @@
   border-radius: 10px;
   background: #fff;
   box-shadow: 0 12px 32px rgba(27, 48, 61, 0.05);
+}
+
+.audit-active-filters {
+  min-height: 1.2em;
+  margin: -8px 0 16px;
+  color: #657783;
+  font-size: 0.74rem;
 }
 
 .audit-panel-heading {

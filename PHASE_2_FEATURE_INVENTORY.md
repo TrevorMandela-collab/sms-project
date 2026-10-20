@@ -2,8 +2,8 @@
 
 ## Scope and status definitions
 
-This inventory records features visible in the checked-out repository on
-`phase-1/database-persistence-hardening` at commit `4fff8d5`. It is based on
+This inventory records features visible in the current checkout, including the
+dashboard and audit-filter changes described below. It is based on
 frontend page/script wiring, mounted backend routes and middleware, relational
 migrations, project documentation, and the existing automated tests. It is not
 a claim that every browser workflow has been manually exercised.
@@ -53,10 +53,43 @@ behavior; backend guards are the access-control boundary.
 | **Announcements — Implemented** | `frontend/announcements/`; dashboard/portal surfaces may display school announcements. | `/announcements`: admin create/update/delete; admin/parent/student read. | `announcements`, school scope; title and body required. | `smoke.js`: invalid announcement creation is rejected. Core CRUD and audience-specific visibility do not have comprehensive automated workflow coverage. |
 | **Events and timetable — Implemented** | `frontend/events/`, `frontend/timetable/` | `/events`: admin/teacher write; admin/teacher/parent read. `/timetable`: admin write; admin/teacher/parent/student read with class/teacher scopes. | `events`, timetable entries, classes, students and optional teacher references; event dates and timetable weekdays/time ranges are validated. | The page scripts and route handlers are present, but no direct event or timetable API workflow assertions were found in `smoke.js`; those journeys remain unverified by automation. |
 | **Chats and realtime messaging — Implemented** | `frontend/chats/` supports chat listing, message actions, invite/join, and WebSocket live updates with a polling fallback. | `/chats`: authenticated users see school chats where they are members; admin manages chats and invite codes. Join and message actions require authentication; message routes check chat membership (admins are permitted). `/ws` realtime endpoint is initialized by the server. | `chats`, `chat_messages`, membership/user IDs, school ownership, realtime WebSocket resources. | `smoke.js` checks school chat visibility and rejects foreign chat access. Message sending/editing/deletion/reactions, invite joining, and WebSocket delivery are present in source but not demonstrated by the automated suite. |
-| **Audit logging — Implemented** | `frontend/audit-logs/` | `/audit-logs`: authenticated admin only; requires a linked school; supports pagination, action/entity and date filters. | `audit_logs`, user/school identifiers; writes are recorded by auth and generic CRUD helpers. | `smoke.js`: admin read, pagination/date validation, non-admin denial, and tenant isolation. It checks selected audit behavior, not completeness of audit coverage for every mutation. |
-| **Database persistence, migrations, and development seed — Implemented** | No standalone user page; supports all backend workflows. | Migrations run at startup or through `npm run db:migrate`; SQLite by default and PostgreSQL with `DATABASE_URL`. Development seed through `npm run seed`. | Relational tables and constraints defined in migration `001`; legacy import `002`; tenant relationship enforcement `003` and `005`; legacy store removal `004`. | `database.js`, `fresh-migrations.js`, `migration-failure.js`, and `seed.js` cover migration/import/failure recovery, constraints, transactions, concurrency, query behavior and idempotent demo seed. Current `npm test` passed all five scripts in the Step 1 baseline. PostgreSQL CI invokes only `database.js`, not the full API smoke suite. |
-| **Frontend navigation, validation, and connection/error states — Unverified** | `frontend/index.html`, shared `sidebar.js`, `auth-client.js`, `auth-guard.js`, and feature pages. | Shared API client adds bearer tokens; handles network errors, HTTP errors, session expiry and logout. UI role checks hide marked elements; server authorization remains authoritative. | Browser local storage for API base, user, and token; backend route/data behavior as above. | No browser automation or frontend test runner was found. Existing API smoke tests do not verify navigation, form behavior, empty/error states, responsive layouts, browser session persistence, or role-specific page rendering. |
+| **Dashboard analytics and customization — Partially Implemented** | `frontend/dashboard/` | Uses existing role-scoped school APIs; no dashboard-preferences or global-search API is mounted. | Versioned widget visibility/order is stored in browser local storage, keyed by user and school; it contains layout preferences only. Attendance, exam, and fee-record analytics filter the records already returned to the signed-in user. | `dashboard-state.test.js`: layout validation/persistence and date-range helpers. A local browser smoke check used synthetic API responses for layout, search, reduced motion, and the requested viewport sizes; it was not an authenticated end-to-end test. |
+| **Audit logging and combined filters — Partially Implemented** | `frontend/audit-logs/` | `/audit-logs`: authenticated admin only; requires a linked school; supports pagination and combined action, actor, entity, target-ID, and date filters. `/audit-logs/filters` returns distinct actions for the authenticated school. | `audit_logs`, user/school identifiers; writes are recorded by auth and generic CRUD helpers. | `smoke.js`: filter options, combined filters, date validation, non-admin denial, and tenant isolation. A dedicated audit-event detail view was not added. |
+| **Audit-log detail view — Not Implemented** | No detail view in `frontend/audit-logs/`. | No dedicated authorized detail endpoint was added. | The existing audit collection is the available source; rendering stored metadata safely requires an explicit sensitive-field policy. | No detail-view workflow or tests are present. |
+| **Database persistence, migrations, and development seed — Implemented** | No standalone user page; supports all backend workflows. | Migrations run at startup or through `npm run db:migrate`; SQLite by default and PostgreSQL with `DATABASE_URL`. Development seed through `npm run seed`. | Relational tables and constraints defined in migration `001`; legacy import `002`; tenant relationship enforcement `003` and `005`; legacy store removal `004`. | `database.js`, `fresh-migrations.js`, `migration-failure.js`, and `seed.js` cover migration/import/failure recovery, constraints, transactions, concurrency, query behavior and idempotent demo seed. The full `npm test` suite passed during this update. PostgreSQL CI invokes only `database.js`, not the full API smoke suite. |
+| **Frontend navigation, validation, and connection/error states — Unverified** | `frontend/index.html`, shared `sidebar.js`, `auth-client.js`, `auth-guard.js`, and feature pages. | Shared API client adds bearer tokens; handles network errors, HTTP errors, session expiry and logout. UI role checks hide marked elements; server authorization remains authoritative. | Browser local storage for API base, user, and token; backend route/data behavior as above. | No browser automation runner is configured in the project. A separate local browser smoke check covered the dashboard with synthetic data and responsive sizes, but did not verify authenticated API journeys or other feature pages. |
 | **Guardians as managed records — Not Implemented** | No guardian page found. | No guardian API route is mounted. | `guardians` and `guardian_students` tables exist in the relational schema; parent visibility is instead scoped through user `childIds`. | Schema presence alone does not implement guardian CRUD, account linking, or a guardian-facing workflow. No automated guardian workflow test found. |
+
+## Dashboard and audit enhancement boundaries
+
+The current dashboard supports nine stable widgets, show/hide and ordering
+controls (including keyboard controls), reset, and per-user/per-school layout
+preferences in browser local storage. Invalid saved layouts fall back to the
+default. The preference is device/browser-local; it is not synchronized
+between devices because no suitable user-preferences API exists.
+
+Analytics support inclusive 7-day, 30-day, and custom ranges over returned
+attendance, exam, and fee records. Dates use the browser's local calendar
+because the application has no school-timezone setting, and a current-term
+preset is unavailable because no academic-term configuration exists. Charts
+navigate only to their module pages; those pages do not support carrying the
+selected chart filters in the URL. Search works over records already loaded
+through existing role-scoped APIs, not a new server-side global-search API.
+The finance display represents fee-record statuses only: there is no mounted
+payment workflow/API, so it does not claim to calculate a reconciled payment
+ledger or partial-payment balances.
+
+Audit filters now compose server-side and remain scoped to the signed-in
+administrator's school. A dedicated audit-detail view, before/after detail
+policy, and detail endpoint were not added. This work does not implement the
+other requested new workflows: student/teacher academic-history views, CSV
+imports, bulk record actions, timetable conflict detection, a true active
+session inventory, data-change undo, protected server-backed form drafts, or
+a dedicated keyboard-shortcut guide beyond the existing Ctrl+K palette.
+It also does not add dashboard skeletons or a shared application-wide toast
+and inline-validation system, or perform a new app-wide role-navigation audit.
+Existing backend validation and authorization remain in force; these are
+unimplemented product enhancements, not assumed capabilities.
 
 ## Critical workflows without adequate automated coverage
 

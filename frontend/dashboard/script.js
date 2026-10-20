@@ -1,6 +1,15 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const dashboardData = { errors: {} };
+let dashboardLayout = null;
+let analyticsPreset = "30";
+let analyticsRange = null;
+let dashboardCharts = [];
+let dashboardResizeTimeout = 0;
+let dashboardResizeHandlerBound = false;
+let dashboardInitStarted = false;
+let searchTimer = 0;
+let searchSequence = 0;
 
 const DATA_PATHS = {
   students: "/students",
@@ -29,6 +38,282 @@ function localDateString(date = new Date()) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function dashboardLayoutStorageKey() {
+  const user = SmsAuth.getUser() || {};
+  return `sms:dashboard-layout:v1:${user.id || "unknown"}:${user.schoolId || "none"}`;
+}
+
+function persistDashboardLayout() {
+  try {
+    dashboardLayout = DashboardState.saveLayout(
+      localStorage,
+      dashboardLayoutStorageKey(),
+      dashboardLayout,
+    );
+    applyDashboardLayout();
+    renderWidgetPreferences();
+    return true;
+  } catch (error) {
+    console.error("[dashboard] layout could not be saved:", error);
+    showToast("Dashboard layout could not be saved on this device.");
+    return false;
+  }
+}
+
+function applyDashboardLayout() {
+  if (!dashboardLayout) return;
+  const containers = {
+    workspace: $(".workspace"),
+    priority: $('[data-widget-container="priority"]'),
+    analytics: $('[data-widget-container="analytics"]'),
+    lower: $('[data-widget-container="lower"]'),
+  };
+  for (const [group, container] of Object.entries(containers)) {
+    if (!container) continue;
+    const widgets = new Map(
+      [...container.querySelectorAll(":scope > [data-dashboard-widget]")].map(
+        (widget) => [widget.dataset.dashboardWidget, widget],
+      ),
+    );
+    for (const id of dashboardLayout.order[group] || []) {
+      const widget = widgets.get(id);
+      if (widget) container.append(widget);
+    }
+  }
+  for (const widget of $$("[data-dashboard-widget]")) {
+    widget.hidden = dashboardLayout.hidden.includes(widget.dataset.dashboardWidget);
+  }
+  requestAnimationFrame(() =>
+    dashboardCharts.forEach((chart) => chart.resize()),
+  );
+}
+
+function moveWidget(id, direction) {
+  const definition = DashboardState.WIDGETS.find((widget) => widget.id === id);
+  const order = dashboardLayout?.order[definition?.group];
+  if (!definition || !order) return;
+  const index = order.indexOf(id);
+  const target = index + direction;
+  if (index < 0 || target < 0 || target >= order.length) return;
+  [order[index], order[target]] = [order[target], order[index]];
+  persistDashboardLayout();
+}
+
+function renderWidgetPreferences() {
+  const list = $("#dashboardWidgetList");
+  if (!list || !dashboardLayout) return;
+  list.replaceChildren();
+  for (const definition of DashboardState.WIDGETS) {
+    const row = document.createElement("div");
+    row.className = "dashboard-widget-row";
+    const label = document.createElement("label");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = !dashboardLayout.hidden.includes(definition.id);
+    checkbox.setAttribute("aria-label", `Show ${definition.label}`);
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) {
+        dashboardLayout.hidden = dashboardLayout.hidden.filter(
+          (id) => id !== definition.id,
+        );
+      } else {
+        dashboardLayout.hidden.push(definition.id);
+      }
+      persistDashboardLayout();
+    });
+    const name = document.createElement("span");
+    name.textContent = definition.label;
+    label.append(checkbox, name);
+
+    const controls = document.createElement("div");
+    controls.className = "dashboard-widget-row-controls";
+    const order = dashboardLayout.order[definition.group];
+    const index = order.indexOf(definition.id);
+    for (const [direction, text] of [[-1, "Move up"], [1, "Move down"]]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = direction < 0 ? "↑" : "↓";
+      button.disabled =
+        direction < 0 ? index === 0 : index === order.length - 1;
+      button.setAttribute(
+        "aria-label",
+        `${text} ${definition.label}`,
+      );
+      button.addEventListener("click", () => moveWidget(definition.id, direction));
+      controls.append(button);
+    }
+    row.append(label, controls);
+    list.append(row);
+  }
+}
+
+function setupWidgetCustomization() {
+  const dialog = $("#dashboardWidgetDialog");
+  const customize = $("#customizeDashboard");
+  const close = () => dialog.close();
+  try {
+    const saved = DashboardState.loadLayout(
+      localStorage,
+      dashboardLayoutStorageKey(),
+    );
+    dashboardLayout = saved.layout;
+    if (saved.error) {
+      console.warn("[dashboard] saved layout was ignored:", saved.error.message);
+      showToast("Saved dashboard layout was invalid; defaults were loaded.");
+    }
+  } catch (error) {
+    console.error("[dashboard] layout preferences are unavailable:", error);
+    dashboardLayout = DashboardState.defaultLayout();
+    showToast("Dashboard customization is unavailable in this browser.");
+  }
+  applyDashboardLayout();
+  renderWidgetPreferences();
+
+  for (const widget of $$("[data-dashboard-widget]")) {
+    const heading = widget.querySelector(".section-heading");
+    if (!heading) continue;
+    const handle = document.createElement("button");
+    handle.className = "dashboard-widget-handle";
+    handle.type = "button";
+    handle.textContent = "↕ Arrange";
+    handle.draggable = true;
+    handle.setAttribute("aria-label", `Drag to arrange ${widget.getAttribute("aria-labelledby") ? document.getElementById(widget.getAttribute("aria-labelledby"))?.textContent : "dashboard widget"}`);
+    handle.addEventListener("dragstart", (event) => {
+      widget.classList.add("is-dragging");
+      event.dataTransfer?.setData("text/plain", widget.dataset.dashboardWidget);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+    });
+    handle.addEventListener("dragend", () => {
+      widget.classList.remove("is-dragging");
+      $$("[data-dashboard-widget]").forEach((item) =>
+        item.classList.remove("is-drop-target"),
+      );
+    });
+    heading.append(handle);
+  }
+
+  document.addEventListener("dragover", (event) => {
+    const dragged = $("[data-dashboard-widget].is-dragging");
+    const target = event.target.closest("[data-dashboard-widget]");
+    if (
+      !dragged ||
+      !target ||
+      dragged === target ||
+      dragged.parentElement !== target.parentElement
+    ) {
+      return;
+    }
+    event.preventDefault();
+    target.classList.add("is-drop-target");
+  });
+  document.addEventListener("dragleave", (event) => {
+    event.target.closest("[data-dashboard-widget]")?.classList.remove("is-drop-target");
+  });
+  document.addEventListener("drop", (event) => {
+    const draggedId = event.dataTransfer?.getData("text/plain");
+    const dragged = draggedId
+      ? $(`[data-dashboard-widget="${CSS.escape(draggedId)}"]`)
+      : null;
+    const target = event.target.closest("[data-dashboard-widget]");
+    if (
+      !dragged ||
+      !target ||
+      dragged === target ||
+      dragged.parentElement !== target.parentElement
+    ) {
+      return;
+    }
+    event.preventDefault();
+    const bounds = target.getBoundingClientRect();
+    const before =
+      event.clientY < bounds.top + bounds.height / 2 ||
+      event.clientX < bounds.left + bounds.width / 2;
+    target.parentElement.insertBefore(dragged, before ? target : target.nextSibling);
+    const group = dragged.dataset.widgetGroup;
+    dashboardLayout.order[group] = [
+      ...target.parentElement.querySelectorAll(":scope > [data-dashboard-widget]"),
+    ].map((widget) => widget.dataset.dashboardWidget);
+    persistDashboardLayout();
+  });
+
+  customize.addEventListener("click", () => {
+    renderWidgetPreferences();
+    dialog.showModal();
+    $("#closeWidgetDialog").focus();
+  });
+  $("#closeWidgetDialog").addEventListener("click", close);
+  $("#doneWidgetLayout").addEventListener("click", close);
+  $("#resetWidgetLayout").addEventListener("click", async () => {
+    const confirmed = await SmsUI.confirm(
+      "Restore the default dashboard layout and show every widget?",
+      { title: "Reset dashboard layout", confirmLabel: "Reset layout" },
+    );
+    if (!confirmed) return;
+    dashboardLayout = DashboardState.defaultLayout();
+    if (persistDashboardLayout()) {
+      showToast("Dashboard layout reset to default.");
+    }
+  });
+}
+
+function setupAnalyticsFilters() {
+  const select = $("#analyticsRange");
+  const customDates = $("#customAnalyticsDates");
+  const today = localDateString();
+  const initialRange = DashboardState.getAnalyticsRange(
+    select.value,
+    "",
+    "",
+    new Date(),
+  );
+  $("#analyticsStart").value = initialRange.from;
+  $("#analyticsEnd").value = initialRange.to;
+  analyticsPreset = select.value;
+  analyticsRange = initialRange;
+
+  select.addEventListener("change", () => {
+    analyticsPreset = select.value;
+    customDates.hidden = analyticsPreset !== "custom";
+    if (analyticsPreset !== "custom") {
+      analyticsRange = DashboardState.getAnalyticsRange(
+        analyticsPreset,
+        "",
+        "",
+        new Date(),
+      );
+      renderDashboardData();
+    } else {
+      $("#analyticsRangeStatus").textContent =
+        "Choose a valid custom range and apply it. The currently applied range remains active until then.";
+    }
+  });
+
+  $("#applyAnalyticsRange").addEventListener("click", () => {
+    const nextRange = DashboardState.getAnalyticsRange(
+      analyticsPreset,
+      $("#analyticsStart").value,
+      $("#analyticsEnd").value,
+      new Date(),
+    );
+    const status = $("#analyticsRangeStatus");
+    if (nextRange.error) {
+      status.textContent = nextRange.error;
+      $("#analyticsStart").setAttribute("aria-invalid", "true");
+      $("#analyticsEnd").setAttribute("aria-invalid", "true");
+      return;
+    }
+    analyticsRange = nextRange;
+    $("#analyticsStart").removeAttribute("aria-invalid");
+    $("#analyticsEnd").removeAttribute("aria-invalid");
+    renderDashboardData();
+  });
+
+  customDates.hidden = analyticsPreset !== "custom";
+  if (!analyticsRange.from || !analyticsRange.to) {
+    $("#analyticsRangeStatus").textContent = `Choose dates on or before ${today}.`;
+  }
 }
 
 function money(amount) {
@@ -234,12 +519,17 @@ function setupSearch() {
   const input = $("#globalSearch");
   const results = $("#searchResults");
   const close = () => {
+    clearTimeout(searchTimer);
+    searchSequence += 1;
     layer.classList.remove("is-open");
     layer.setAttribute("aria-hidden", "true");
+    $("#searchButton").focus();
   };
   $("#searchButton").addEventListener("click", () => {
     layer.classList.add("is-open");
     layer.setAttribute("aria-hidden", "false");
+    input.value = "";
+    results.textContent = "Search students, teachers, classes, subjects, attendance, fees, and results.";
     input.focus();
   });
   $("#searchClose").addEventListener("click", close);
@@ -249,37 +539,134 @@ function setupSearch() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") close();
   });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown") {
+      const firstResult = results.querySelector("button[data-href]");
+      if (firstResult) {
+        event.preventDefault();
+        firstResult.focus();
+      }
+    }
+  });
+  results.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    const items = [...results.querySelectorAll("button[data-href]")];
+    const index = items.indexOf(document.activeElement);
+    const target = event.key === "ArrowDown" ? index + 1 : index - 1;
+    if (target >= 0 && target < items.length) {
+      event.preventDefault();
+      items[target].focus();
+    } else if (event.key === "ArrowUp" && index === 0) {
+      event.preventDefault();
+      input.focus();
+    }
+  });
   input.addEventListener("input", () => {
-    const term = input.value.trim().toLowerCase();
+    clearTimeout(searchTimer);
+    const sequence = ++searchSequence;
+    const term = input.value.trim().toLocaleLowerCase();
     if (!term) {
-      results.innerHTML = "<p>Try “Brian”, “attendance”, or “fees”.</p>";
+      results.textContent = "Search students, teachers, classes, subjects, attendance, fees, and results.";
       return;
     }
-    const searchIndex = [
-      ...dashboardData.students.map((record) => ({ label: record.name, type: "Student", href: "../students/index.html" })),
-      ...dashboardData.teachers.map((record) => ({ label: record.name, type: "Teacher", href: "../teachers/index.html" })),
-      ...dashboardData.classes.map((record) => ({ label: record.name, type: "Class", href: "../classes-subjects/index.html" })),
-      ...dashboardData.subjects.map((record) => ({ label: record.name, type: "Subject", href: "../classes-subjects/index.html" })),
-      ...dashboardData.fees.map((record) => ({ label: record.studentName || `Fee ${money(record.amount)}`, type: "Fee record", href: "../fees/index.html" })),
-      ...dashboardData.exams.map((record) => ({ label: `${record.studentName || "Result"} ${record.subject || ""}`, type: "Result", href: "../exams/index.html" })),
-      ...dashboardData.announcements.map((record) => ({ label: record.title, type: "Announcement", href: "../announcements/index.html" })),
-    ];
-    const matches = searchIndex.filter((item) =>
-      `${item.label} ${item.type}`.toLowerCase().includes(term),
-    );
-    results.innerHTML = matches.length
-      ? matches
-          .map(
-            (item) =>
-              `<button type="button" data-search-href="${item.href}"><strong>${escapeHtml(item.label)}</strong><small> · ${escapeHtml(item.type)}</small></button>`,
-          )
-          .join("")
-      : "<p>No matching records found.</p>";
-    results.querySelectorAll("[data-search-href]").forEach((button) =>
-      button.addEventListener("click", () => {
-        window.location.href = button.dataset.searchHref;
-      }),
-    );
+    if ($(".workspace")?.getAttribute("aria-busy") === "true") {
+      results.textContent = "Dashboard records are still loading. Try your search again shortly.";
+      return;
+    }
+    results.textContent = "Searching records you are allowed to view…";
+    searchTimer = setTimeout(() => {
+      if (sequence !== searchSequence) return;
+      const searchIndex = [
+        ...(dashboardData.students || []).map((record) => ({
+          label: record.name || "Student",
+          terms: [record.name, record.class],
+          type: "Student",
+          href: "../students/index.html",
+        })),
+        ...(dashboardData.teachers || []).map((record) => ({
+          label: record.name || "Teacher",
+          terms: [record.name, record.subjects],
+          type: "Teacher",
+          href: "../teachers/index.html",
+        })),
+        ...(dashboardData.classes || []).map((record) => ({
+          label: record.name || "Class",
+          terms: [record.name, record.grade],
+          type: "Class",
+          href: "../classes-subjects/index.html",
+        })),
+        ...(dashboardData.subjects || []).map((record) => ({
+          label: record.name || "Subject",
+          terms: [record.name, record.code],
+          type: "Subject",
+          href: "../classes-subjects/index.html",
+        })),
+        ...(dashboardData.attendance || []).map((record) => ({
+          label: `${record.className || "Attendance"} · ${record.status || "status not recorded"}`,
+          terms: [record.className, record.status, record.date],
+          type: "Attendance",
+          href: "../attendance/index.html",
+        })),
+        ...(dashboardData.fees || []).map((record) => ({
+          label: record.studentName || `Fee ${money(record.amount)}`,
+          terms: [record.studentName, record.class, record.status, record.amount],
+          type: "Fee record",
+          href: "../fees/index.html",
+        })),
+        ...(dashboardData.exams || []).map((record) => ({
+          label: `${record.studentName || "Result"} ${record.subject || ""}`.trim(),
+          terms: [record.studentName, record.subject, record.examName, record.term],
+          type: "Result",
+          href: "../exams/index.html",
+        })),
+        ...(dashboardData.announcements || []).map((record) => ({
+          label: record.title || "Announcement",
+          terms: [record.title, record.body],
+          type: "Announcement",
+          href: "../announcements/index.html",
+        })),
+      ];
+      const matches = searchIndex.filter((item) =>
+        [item.label, item.type, ...item.terms]
+          .filter((value) => value !== null && value !== undefined)
+          .join(" ")
+          .toLocaleLowerCase()
+          .includes(term),
+      );
+      results.replaceChildren();
+      const unavailableSources = [
+        "students",
+        "teachers",
+        "classes",
+        "subjects",
+        "attendance",
+        "fees",
+        "exams",
+        "announcements",
+      ].filter((key) => dashboardData.errors?.[key]);
+      if (!matches.length) {
+        results.textContent = unavailableSources.length
+          ? `No match in the loaded records. Some sources are unavailable: ${unavailableSources.join(", ")}.`
+          : "No matching records found in the records available to your account.";
+        return;
+      }
+      for (const item of matches.slice(0, 20)) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.href = item.href;
+        const title = document.createElement("strong");
+        title.textContent = item.label;
+        const type = document.createElement("small");
+        type.textContent = ` · ${item.type}`;
+        button.append(title, type);
+        results.append(button);
+      }
+      if (unavailableSources.length) {
+        const notice = document.createElement("p");
+        notice.textContent = `Some search sources are unavailable: ${unavailableSources.join(", ")}.`;
+        results.append(notice);
+      }
+    }, 160);
   });
 }
 
@@ -344,6 +731,44 @@ function renderDashboardData() {
   const fees = dashboardData.fees;
   const exams = dashboardData.exams;
   const today = localDateString();
+  const range = analyticsRange || DashboardState.getAnalyticsRange("30", "", "");
+  const attendanceWindow = DashboardState.filterRecordsByRange(
+    attendance,
+    range,
+    ["date"],
+  );
+  const feeWindow = DashboardState.filterRecordsByRange(
+    fees,
+    range,
+    ["updatedAt", "createdAt"],
+  );
+  const examWindow = DashboardState.filterRecordsByRange(
+    exams,
+    range,
+    ["createdAt", "updatedAt"],
+  );
+  const analyticsAttendance = attendanceWindow.records;
+  const analyticsFees = feeWindow.records;
+  const analyticsExams = examWindow.records;
+  const scoredExams = analyticsExams.filter((record) => {
+    if (record.score === null || record.score === undefined) return false;
+    if (record.maxScore === null || record.maxScore === undefined) return false;
+    const score = Number(record.score);
+    const maxScore = Number(record.maxScore);
+    return Number.isFinite(score) && Number.isFinite(maxScore) && maxScore > 0 && score >= 0;
+  });
+  const missingDates =
+    attendanceWindow.missingDateCount +
+    feeWindow.missingDateCount +
+    examWindow.missingDateCount;
+  const unavailableAnalytics = ["attendance", "fees", "exams"]
+    .filter((key) => errors[key])
+    .map((key) => key);
+  $("#analyticsRangeStatus").textContent =
+    `Analytics: ${range.from} through ${range.to}. ` +
+    `${missingDates ? `${missingDates} records without usable dates are excluded. ` : ""}` +
+    `${unavailableAnalytics.length ? `Unavailable data sources: ${unavailableAnalytics.join(", ")}. ` : ""}` +
+    "Fee totals use fee-record status and dates, not a separate payment ledger.";
   const todayAttendance = attendance.filter((record) => record.date === today);
   const presentCount = todayAttendance.filter((record) => record.status === "present").length;
   const lateCount = todayAttendance.filter((record) => record.status === "late").length;
@@ -354,7 +779,7 @@ function renderDashboardData() {
   const collectedFees = fees
     .filter((record) => record.status === "paid")
     .reduce((total, record) => total + Number(record.amount || 0), 0);
-  const outstandingFees = Math.max(0, totalFees - collectedFees);
+  const amountOnNotFullyPaidFees = Math.max(0, totalFees - collectedFees);
   const feeRate = totalFees ? Math.round((collectedFees / totalFees) * 100) : 0;
   const classCount = dashboardData.classes.length || new Set(students.map((student) => student.class).filter(Boolean)).size;
 
@@ -365,14 +790,20 @@ function renderDashboardData() {
     ? `${todayAttendance.length} of ${students.length} students marked`
     : "No register submitted today";
   $("#metricFees").textContent = `${feeRate}%`;
-  $("#metricFeesNote").textContent = `${money(collectedFees)} collected of ${money(totalFees)}`;
+  $("#metricFeesNote").textContent = `${money(collectedFees)} of fee-record amounts marked paid`;
   $("#metricTeachers").textContent = teachers.length.toLocaleString();
 
-  const attendanceSummary = $("#attendanceSummary");
-  attendanceSummary.textContent = attendanceRate === null ? "—" : `${attendanceRate}%`;
-  $("#attendanceSummaryNote").textContent = todayAttendance.length
-    ? `${presentCount} present · ${lateCount} late · ${todayAttendance.filter((record) => record.status === "absent").length} absent`
-    : "No attendance records for today";
+  const periodPresent = analyticsAttendance.filter(
+    (record) => record.status === "present" || record.status === "late",
+  ).length;
+  const periodAttendanceRate = analyticsAttendance.length
+    ? Math.round((periodPresent / analyticsAttendance.length) * 100)
+    : null;
+  $("#attendanceSummary").textContent =
+    periodAttendanceRate === null ? "—" : `${periodAttendanceRate}%`;
+  $("#attendanceSummaryNote").textContent = analyticsAttendance.length
+    ? `${periodPresent} present or late of ${analyticsAttendance.length} records`
+    : "No attendance records in the selected period";
 
   const studentsById = new Map(students.map((student) => [student.id, student]));
   const classGroups = new Map();
@@ -383,18 +814,16 @@ function renderDashboardData() {
   });
   $("#classBreakdown").innerHTML = [...classGroups.entries()].slice(0, 6).map(([className, records]) => {
     const recordIds = new Set(records.map((student) => student.id));
-    const marked = todayAttendance.filter((record) => recordIds.has(record.studentId));
+    const marked = analyticsAttendance.filter((record) => recordIds.has(record.studentId));
     const count = marked.filter((record) => record.status === "present" || record.status === "late").length;
     const rate = marked.length ? Math.round((count / marked.length) * 100) : 0;
     return `<div><span>${escapeHtml(className)}</span><b>${marked.length ? `${rate}%` : "—"}</b><small>${marked.length} marked of ${records.length} students</small><i><em style="width:${rate}%"></em></i></div>`;
   }).join("") || `<p class="dashboard-empty">No classes or student groups yet.</p>`;
 
   const subjectScores = new Map();
-  exams.forEach((record) => {
+  scoredExams.forEach((record) => {
     const subject = record.subject || "Other";
-    const percentage = Number(record.maxScore)
-      ? (Number(record.score) / Number(record.maxScore)) * 100
-      : 0;
+    const percentage = (Number(record.score) / Number(record.maxScore)) * 100;
     const group = subjectScores.get(subject) || { total: 0, count: 0 };
     group.total += percentage;
     group.count += 1;
@@ -404,26 +833,40 @@ function renderDashboardData() {
     subject,
     average: Math.round(group.total / group.count),
   }));
-  const overallAverage = exams.length
-    ? Math.round(exams.reduce((total, record) => total + (Number(record.maxScore) ? Number(record.score) / Number(record.maxScore) * 100 : 0), 0) / exams.length)
+  const overallAverage = scoredExams.length
+    ? Math.round(scoredExams.reduce((total, record) => total + (Number(record.score) / Number(record.maxScore)) * 100, 0) / scoredExams.length)
     : null;
   $("#performanceSummary").textContent = overallAverage === null ? "—" : `${overallAverage}%`;
+  $('[data-dashboard-widget="performance"] .chart-summary small').textContent = analyticsExams.length
+    ? `${scoredExams.length} scored of ${analyticsExams.length} assessment records in the selected period`
+    : "No assessment records in the selected period";
   $("#performanceList").innerHTML = dashboardData.subjectAverages.slice(0, 5).map(({ subject, average }) =>
     `<div><span>${escapeHtml(subject)}</span><b>${average}%</b><i><em style="width:${Math.min(100, average)}%"></em></i></div>`,
   ).join("") || `<p class="dashboard-empty">No exam results recorded yet.</p>`;
 
+  const periodTotalFees = analyticsFees.reduce(
+    (total, record) => total + Number(record.amount || 0),
+    0,
+  );
+  const periodPaidFees = analyticsFees
+    .filter((record) => record.status === "paid")
+    .reduce((total, record) => total + Number(record.amount || 0), 0);
+  const periodNotFullyPaidFees = Math.max(0, periodTotalFees - periodPaidFees);
+  const periodFeeRate = periodTotalFees
+    ? Math.round((periodPaidFees / periodTotalFees) * 100)
+    : 0;
   $("#financeStats").innerHTML = [
-    ["Total expected", money(totalFees)],
-    ["Collected", money(collectedFees)],
-    ["Outstanding", money(outstandingFees)],
-    ["Collection rate", `${feeRate}%`],
+    ["Expected in period", money(periodTotalFees)],
+    ["Marked paid", money(periodPaidFees)],
+    ["Amount on not-fully-paid records", money(periodNotFullyPaidFees)],
+    ["Paid amount share", `${periodFeeRate}%`],
   ].map(([label, value]) => `<div><small>${label}</small><strong>${value}</strong></div>`).join("");
 
-  const recentPayments = fees
+  const recentPayments = analyticsFees
     .filter((record) => record.status === "paid")
     .sort((left, right) => String(right.updatedAt || right.createdAt || "").localeCompare(String(left.updatedAt || left.createdAt || "")))
     .slice(0, 3);
-  $("#paymentList").innerHTML = `<h3>Recent payments</h3>${recentPayments.map((record) => {
+  $("#paymentList").innerHTML = `<h3>Recent fee records marked paid</h3>${recentPayments.map((record) => {
     const student = studentsById.get(record.studentId);
     const initials = (record.studentName || student?.name || "?").split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase();
     const paidDate = record.updatedAt || record.createdAt;
@@ -433,10 +876,10 @@ function renderDashboardData() {
 
   const attentionItems = [];
   const unpaidCount = fees.filter((record) => record.status !== "paid").length;
-  if (unpaidCount) attentionItems.push({ type: "warning", icon: "!", title: `${unpaidCount} fee records need follow-up`, detail: `Outstanding balance ${money(outstandingFees)}`, href: "../fees/index.html" });
+  if (unpaidCount) attentionItems.push({ type: "warning", icon: "!", title: `${unpaidCount} fee records are not fully marked paid`, detail: `${money(amountOnNotFullyPaidFees)} in original fee amounts; exact partial balances are unavailable`, href: "../fees/index.html" });
   const unmarkedCount = Math.max(0, students.length - new Set(todayAttendance.map((record) => record.studentId)).size);
   if (students.length && unmarkedCount) attentionItems.push({ type: "warning", icon: "!", title: `${unmarkedCount} students have no attendance entry today`, detail: "Attendance · Today's register", href: "../attendance/index.html" });
-  const lowScores = exams.filter((record) => Number(record.maxScore) && Number(record.score) / Number(record.maxScore) < 0.4).length;
+  const lowScores = scoredExams.filter((record) => Number(record.score) / Number(record.maxScore) < 0.4).length;
   if (lowScores) attentionItems.push({ type: "info", icon: "i", title: `${lowScores} results are below 40%`, detail: "Academic performance · Exams", href: "../exams/index.html" });
   $("#metricAlerts").textContent = attentionItems.length.toLocaleString();
   $("#attentionCount").textContent = `${attentionItems.length} open`;
@@ -464,15 +907,37 @@ function renderDashboardData() {
 
   const activityItems = [
     ...students.map((record) => ({ date: record.createdAt, title: "Student enrolled", detail: record.name, icon: "+", color: "blue", href: "../students/index.html" })),
-    ...fees.filter((record) => record.status === "paid").map((record) => ({ date: record.updatedAt || record.createdAt, title: "Fee payment recorded", detail: `${record.studentName || studentsById.get(record.studentId)?.name || "Student"} · ${money(record.amount)}`, icon: "₵", color: "green", href: "../fees/index.html" })),
+    ...fees.filter((record) => record.status === "paid").map((record) => ({ date: record.updatedAt || record.createdAt, title: "Fee record marked paid", detail: `${record.studentName || studentsById.get(record.studentId)?.name || "Student"} · ${money(record.amount)}`, icon: "₵", color: "green", href: "../fees/index.html" })),
     ...attendance.map((record) => ({ date: record.createdAt || record.date, title: "Attendance submitted", detail: `${record.className || "Class"} · ${record.status}`, icon: "✓", color: "yellow", href: "../attendance/index.html" })),
     ...dashboardData.announcements.map((record) => ({ date: record.createdAt || record.date, title: "Announcement published", detail: record.title, icon: "◌", color: "blue", href: "../announcements/index.html" })),
   ].filter((item) => item.date).sort((left, right) => String(right.date).localeCompare(String(left.date))).slice(0, 5);
-  $("#activityFeed").innerHTML = activityItems.map((item) => {
-    const date = new Date(item.date);
-    const time = Number.isNaN(date.getTime()) ? "—" : date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-    return `<div><time>${time}</time><span class="feed-icon feed-icon--${item.color}">${item.icon}</span><p><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail || "")}</small></p><a href="${item.href}" aria-label="Open ${escapeHtml(item.title)}">→</a></div>`;
-  }).join("") || `<p class="dashboard-empty">School activity will appear here as records are added.</p>`;
+  const actorCanReadAudit = ["admin", "school_admin"].includes(
+    SmsAuth.getUser()?.role,
+  );
+  const auditActivity = actorCanReadAudit
+    ? (dashboardData.auditLogs || []).map((record) => ({
+        date: record.timestamp,
+        title: String(record.action || "Administrative activity").replace(/_/g, " "),
+        detail: `${record.entityType || "Record"} · ${record.actorUserId ? "Actor recorded" : "Actor not recorded"}`,
+        icon: "≋",
+        color: "blue",
+        href: null,
+      }))
+    : [];
+  const visibleActivity = auditActivity.length
+    ? auditActivity
+    : activityItems;
+  $("#activityFeed").innerHTML = visibleActivity.map((item) => {
+    const date = item.date ? new Date(item.date) : null;
+    const time =
+      date && !Number.isNaN(date.getTime())
+        ? date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+        : "Time not recorded";
+    const link = item.href
+      ? `<a href="${item.href}" aria-label="Open ${escapeHtml(item.title)}">→</a>`
+      : "";
+    return `<div><time>${escapeHtml(time)}</time><span class="feed-icon feed-icon--${item.color}">${item.icon}</span><p><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.detail || "")}</small></p>${link}</div>`;
+  }).join("") || `<p class="dashboard-empty">No school activity is available yet.</p>`;
 
   renderDashboardAudit(errors.auditLogs);
   if (errors.students) {
@@ -495,7 +960,7 @@ function renderDashboardData() {
     $("#financeStats").innerHTML =
       '<p class="dashboard-empty">Finance totals unavailable.</p>';
     $("#paymentList").innerHTML =
-      '<p class="dashboard-empty">Recent payments unavailable.</p>';
+      '<p class="dashboard-empty">Recent fee records unavailable.</p>';
   }
   if (errors.exams) {
     $("#performanceSummary").textContent = "—";
@@ -516,7 +981,7 @@ function renderDashboardData() {
   }
 
   const attendanceByDate = new Map();
-  attendance.forEach((record) => {
+  analyticsAttendance.forEach((record) => {
     if (!attendanceByDate.has(record.date)) attendanceByDate.set(record.date, []);
     attendanceByDate.get(record.date).push(record);
   });
@@ -525,7 +990,7 @@ function renderDashboardData() {
     rate: Math.round((records.filter((record) => record.status === "present" || record.status === "late").length / records.length) * 100),
   }));
   const paidByMonth = new Map();
-  fees.filter((record) => record.status === "paid").forEach((record) => {
+  analyticsFees.filter((record) => record.status === "paid").forEach((record) => {
     const date = record.updatedAt || record.createdAt;
     if (!date) return;
     const month = String(date).slice(0, 7);
@@ -666,15 +1131,66 @@ function chartDefaults() {
   Chart.defaults.font.family = "DM Sans, sans-serif";
   Chart.defaults.font.size = 10;
   Chart.defaults.color = "#71808f";
-  Chart.defaults.animation.duration = 500;
+  const reduceMotion =
+    document.documentElement.classList.contains("reduce-motion") ||
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  Chart.defaults.animation.duration = reduceMotion ? 0 : 500;
+}
+
+function makeChartNavigable(canvas, url, hasData, description) {
+  canvas.setAttribute("aria-label", description);
+  canvas.setAttribute("role", hasData ? "link" : "img");
+  canvas.tabIndex = hasData ? 0 : -1;
+  canvas.style.cursor = hasData ? "pointer" : "default";
+  canvas.dataset.navigationUrl = hasData ? url : "";
+  if (canvas.dataset.navigationKeyBound === "true") return;
+  canvas.dataset.navigationKeyBound = "true";
+  canvas.addEventListener("keydown", (event) => {
+    if (
+      (event.key === "Enter" || event.key === " ") &&
+      canvas.dataset.navigationUrl
+    ) {
+      event.preventDefault();
+      window.location.href = canvas.dataset.navigationUrl;
+    }
+  });
 }
 
 function renderCharts() {
+  dashboardCharts.forEach((chart) => chart.destroy());
+  dashboardCharts = [];
   chartDefaults();
   const grid = "rgba(113,128,143,.12)";
   const attendanceSeries = dashboardData.attendanceSeries || [];
   const subjectAverages = (dashboardData.subjectAverages || []).slice(0, 4);
   const financeSeries = dashboardData.financeSeries || [];
+  const attendanceCanvas = $("#attendanceTrendChart");
+  const performanceCanvas = $("#performanceChart");
+  const financeCanvas = $("#financeChart");
+  makeChartNavigable(
+    attendanceCanvas,
+    "../attendance/index.html",
+    attendanceSeries.length > 0,
+    attendanceSeries.length
+      ? "Attendance trend chart. Press Enter to open attendance."
+      : "No attendance data for the selected period.",
+  );
+  makeChartNavigable(
+    performanceCanvas,
+    "../exams/index.html",
+    subjectAverages.length > 0,
+    subjectAverages.length
+      ? "Subject performance chart. Press Enter to open results."
+      : "No scored assessment data for the selected period.",
+  );
+  makeChartNavigable(
+    financeCanvas,
+    "../fees/index.html",
+    financeSeries.length > 0,
+    financeSeries.length
+      ? "Fee records marked paid by month. Press Enter to open fees."
+      : "No fee records marked paid for the selected period.",
+  );
   const attendanceChart = new Chart($("#attendanceTrendChart"), {
     type: "line",
     data: {
@@ -695,6 +1211,11 @@ function renderCharts() {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      onClick: (_event, elements) => {
+        if (elements.length && attendanceSeries.length) {
+          window.location.href = "../attendance/index.html";
+        }
+      },
       plugins: {
         legend: { display: false },
         tooltip: {
@@ -730,6 +1251,11 @@ function renderCharts() {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      onClick: (_event, elements) => {
+        if (elements.length && subjectAverages.length) {
+          window.location.href = "../exams/index.html";
+        }
+      },
       plugins: {
         legend: { display: false },
         tooltip: {
@@ -768,11 +1294,16 @@ function renderCharts() {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      onClick: (_event, elements) => {
+        if (elements.length && financeSeries.length) {
+          window.location.href = "../fees/index.html";
+        }
+      },
       plugins: {
         legend: { display: false },
         tooltip: {
           displayColors: false,
-          callbacks: { label: (context) => `${money(context.parsed.y)} collected` },
+          callbacks: { label: (context) => `${money(context.parsed.y)} in fee records marked paid` },
         },
       },
       scales: {
@@ -787,39 +1318,55 @@ function renderCharts() {
     },
   });
 
-  const charts = [attendanceChart, performanceChart, financeChart];
-  let resizeTimeout = 0;
-  window.addEventListener(
-    "resize",
-    () => {
-      window.clearTimeout(resizeTimeout);
-      resizeTimeout = window.setTimeout(() => {
-        charts.forEach((chart) => chart.resize());
-        resizeTimeout = 0;
-      }, 250);
-    },
-    { passive: true },
-  );
+  dashboardCharts = [attendanceChart, performanceChart, financeChart];
+  if (!dashboardResizeHandlerBound) {
+    dashboardResizeHandlerBound = true;
+    window.addEventListener(
+      "resize",
+      () => {
+        window.clearTimeout(dashboardResizeTimeout);
+        dashboardResizeTimeout = window.setTimeout(() => {
+          dashboardCharts.forEach((chart) => chart.resize());
+          dashboardResizeTimeout = 0;
+        }, 250);
+      },
+      { passive: true },
+    );
+  }
 }
 
 async function init() {
+  if (dashboardInitStarted) return;
   if (SmsAuth.getUser()?.role === "super_admin") {
     window.location.replace(SmsAuth.homeUrlForRole("super_admin"));
     return;
   }
-  setUserProfile();
-  setupActions();
-  setupMenus();
-  setupSearch();
-  $("#dashboardDate").textContent = new Date().toLocaleDateString("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-  await loadDashboardData();
-  renderDashboardData();
-  await setupSchoolProfile();
+  dashboardInitStarted = true;
+  try {
+    setUserProfile();
+    setupActions();
+    setupMenus();
+    setupSearch();
+    setupWidgetCustomization();
+    setupAnalyticsFilters();
+    $("#dashboardDate").textContent = new Date().toLocaleDateString("en-GB", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+    await loadDashboardData();
+    renderDashboardData();
+    await setupSchoolProfile();
+  } catch (error) {
+    console.error("[dashboard] initialization failed:", error);
+    SmsUI.toast("Dashboard could not finish loading. Refresh the page to try again.", "error");
+  } finally {
+    $(".workspace").setAttribute("aria-busy", "false");
+  }
 }
 
-document.addEventListener("DOMContentLoaded", init);
+document.addEventListener("DOMContentLoaded", () => {
+  $(".workspace").setAttribute("aria-busy", "true");
+  init();
+});
