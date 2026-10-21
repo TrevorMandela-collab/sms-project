@@ -1,130 +1,32 @@
 (() => {
-  const STARTUP_KEY = "mandela-nexus-startup-seen";
-  const MINIMUM_DURATION_MS = 3650;
-  const REDUCED_MOTION_DURATION_MS = 800;
-  const MAXIMUM_WAIT_MS = 12000;
-  const pathname = window.location.pathname.replace(/\/+$/, "");
-  const isLoginPage = /\/login(?:\/index\.html)?$/i.test(pathname);
-  const isPublicEntryPage =
-    /\/(?:login|register|forgot-password|reset-password)(?:\/index\.html)?$/i.test(
-      pathname,
+  const MINIMUM_LOADER_DURATION_MS = 900;
+  const REVEAL_DURATION_MS = 1900;
+  const EXIT_DURATION_MS = 380;
+  const SLOW_REQUEST_DURATION_MS = 12000;
+  let activeStartup;
+
+  function isReducedMotion() {
+    return (
+      localStorage.getItem("sms:reduce-motion") === "true" ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
     );
-  const hasSession = Boolean(localStorage.getItem("sms_token"));
-
-  if (
-    sessionStorage.getItem(STARTUP_KEY) === "1" ||
-    (isLoginPage && hasSession) ||
-    (!isPublicEntryPage && !hasSession)
-  ) {
-    return;
   }
 
-  sessionStorage.setItem(STARTUP_KEY, "1");
-  document.documentElement.classList.add("nexus-startup-pending");
-
-  const reducedMotion =
-    localStorage.getItem("sms:reduce-motion") === "true" ||
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const startedAt = performance.now();
-  const minimumDuration = reducedMotion
-    ? REDUCED_MOTION_DURATION_MS
-    : MINIMUM_DURATION_MS;
-  const previousAttributes = new Map();
-  let overlay;
-  let bodyObserver;
-  let contentObserver;
-  let domReadyHandler;
-  let pageReady = document.readyState === "complete";
-  let timedOut = false;
-  let dismissed = false;
-  let minimumTimer;
-  let timeoutTimer;
-  let removalTimer;
-
-  function blockPageContent() {
-    Array.from(document.body.children).forEach((element) => {
-      if (element === overlay || previousAttributes.has(element)) return;
-      previousAttributes.set(element, {
-        inert: element.getAttribute("inert"),
-        ariaHidden: element.getAttribute("aria-hidden"),
-      });
-      element.setAttribute("inert", "");
-      element.setAttribute("aria-hidden", "true");
-    });
-  }
-
-  function restorePage() {
-    if (contentObserver) {
-      contentObserver.disconnect();
-      contentObserver = null;
+  function start() {
+    if (activeStartup) return activeStartup;
+    if (!document.body) {
+      throw new Error("The startup animation requires a loaded page body.");
     }
-    previousAttributes.forEach((attributes, element) => {
-      if (attributes.inert === null) element.removeAttribute("inert");
-      else element.setAttribute("inert", attributes.inert);
 
-      if (attributes.ariaHidden === null) {
-        element.removeAttribute("aria-hidden");
-      } else {
-        element.setAttribute("aria-hidden", attributes.ariaHidden);
-      }
-    });
-    previousAttributes.clear();
-  }
+    const reducedMotion = isReducedMotion();
+    const startedAt = performance.now();
+    const previousAttributes = new Map();
+    const overlay = document.createElement("section");
+    let timeoutTimer;
+    let closeTimer;
+    let contentObserver;
+    let dismissed = false;
 
-  function cleanup() {
-    window.removeEventListener("load", onPageLoad);
-    window.removeEventListener("pagehide", onPageHide);
-    window.clearTimeout(minimumTimer);
-    window.clearTimeout(timeoutTimer);
-    window.clearTimeout(removalTimer);
-    if (bodyObserver) {
-      bodyObserver.disconnect();
-      bodyObserver = null;
-    }
-    if (domReadyHandler) {
-      document.removeEventListener("DOMContentLoaded", domReadyHandler);
-      domReadyHandler = null;
-    }
-  }
-
-  function onPageHide() {
-    dismissed = true;
-    cleanup();
-    restorePage();
-    document.documentElement.classList.remove("nexus-startup-pending");
-    if (overlay) overlay.remove();
-  }
-
-  function dismiss(force = false) {
-    if (dismissed || (!pageReady && !force) || !overlay) return;
-    dismissed = true;
-    cleanup();
-    overlay.classList.add("is-exiting");
-    removalTimer = window.setTimeout(() => {
-      restorePage();
-      document.documentElement.classList.remove("nexus-startup-pending");
-      overlay.remove();
-    }, reducedMotion ? 0 : 380);
-  }
-
-  function showSlowState() {
-    if (!overlay || pageReady || dismissed) return;
-
-    const notice = overlay.querySelector(".nexus-startup__notice");
-    notice.textContent =
-      "The app is taking longer than expected to start. You can continue or try loading it again.";
-    notice.hidden = false;
-    notice.setAttribute("role", "alert");
-
-    const actions = overlay.querySelector(".nexus-startup__actions");
-    actions.hidden = false;
-    actions.querySelector(".nexus-startup__continue").focus();
-  }
-
-  function createOverlay() {
-    if (overlay || !document.body) return;
-
-    overlay = document.createElement("section");
     overlay.id = "nexus-startup";
     overlay.className = "nexus-startup";
     overlay.setAttribute("role", "dialog");
@@ -161,76 +63,138 @@
           <p class="nexus-startup__tagline" id="nexus-startup-tagline">One School. One Nexus.</p>
           <p class="nexus-startup__notice" hidden></p>
           <div class="nexus-startup__actions" hidden>
-            <button class="nexus-startup__button nexus-startup__continue" type="button">Continue</button>
-            <button class="nexus-startup__button nexus-startup__retry" type="button">Retry</button>
+            <button class="nexus-startup__button nexus-startup__continue" type="button">Continue without animation</button>
           </div>
         </div>
       </div>`;
 
     if (reducedMotion) overlay.classList.add("is-reduced-motion");
+    document.documentElement.classList.add("nexus-startup-pending");
     document.body.appendChild(overlay);
 
+    function blockPageContent() {
+      Array.from(document.body.children).forEach((element) => {
+        if (element === overlay || previousAttributes.has(element)) return;
+        previousAttributes.set(element, {
+          inert: element.getAttribute("inert"),
+          ariaHidden: element.getAttribute("aria-hidden"),
+        });
+        element.setAttribute("inert", "");
+        element.setAttribute("aria-hidden", "true");
+      });
+    }
+
+    function restorePage() {
+      if (contentObserver) {
+        contentObserver.disconnect();
+        contentObserver = null;
+      }
+
+      previousAttributes.forEach((attributes, element) => {
+        if (attributes.inert === null) element.removeAttribute("inert");
+        else element.setAttribute("inert", attributes.inert);
+
+        if (attributes.ariaHidden === null) {
+          element.removeAttribute("aria-hidden");
+        } else {
+          element.setAttribute("aria-hidden", attributes.ariaHidden);
+        }
+      });
+      previousAttributes.clear();
+      document.documentElement.classList.remove("nexus-startup-pending");
+      if (activeStartup === startup) activeStartup = null;
+    }
+
+    function cleanup() {
+      window.clearTimeout(timeoutTimer);
+      window.clearTimeout(closeTimer);
+      window.removeEventListener("pagehide", onPageHide);
+    }
+
+    function onPageHide() {
+      dismissed = true;
+      cleanup();
+      restorePage();
+      overlay.remove();
+    }
+
+    function close() {
+      if (dismissed) return Promise.resolve();
+      dismissed = true;
+      cleanup();
+      overlay.classList.add("is-exiting");
+
+      return new Promise((resolve) => {
+        closeTimer = window.setTimeout(() => {
+          restorePage();
+          overlay.remove();
+          resolve();
+        }, reducedMotion ? 0 : EXIT_DURATION_MS);
+      });
+    }
+
+    function showSlowState() {
+      if (dismissed) return;
+      const notice = overlay.querySelector(".nexus-startup__notice");
+      notice.textContent =
+        "This is taking longer than expected. You can continue without the animation.";
+      notice.hidden = false;
+      notice.setAttribute("role", "alert");
+      const actions = overlay.querySelector(".nexus-startup__actions");
+      actions.hidden = false;
+      actions
+        .querySelector(".nexus-startup__continue")
+        .addEventListener("click", fail);
+      actions.querySelector(".nexus-startup__continue").focus();
+    }
+
+    async function fail() {
+      if (dismissed) return;
+      await close();
+    }
+
+    async function complete(destination) {
+      if (dismissed) return false;
+
+      window.clearTimeout(timeoutTimer);
+      const loaderRemaining = reducedMotion
+        ? 0
+        : Math.max(0, MINIMUM_LOADER_DURATION_MS - (performance.now() - startedAt));
+      await new Promise((resolve) => window.setTimeout(resolve, loaderRemaining));
+      if (dismissed) return false;
+
+      overlay.classList.add("is-revealing");
+      await new Promise((resolve) =>
+        window.setTimeout(resolve, reducedMotion ? 0 : REVEAL_DURATION_MS),
+      );
+      if (dismissed) return false;
+
+      const target = new URL(destination, window.location.href);
+      if (target.origin !== window.location.origin) {
+        throw new Error("Startup navigation must stay on the current site.");
+      }
+      overlay.classList.add("is-exiting");
+      await new Promise((resolve) =>
+        window.setTimeout(resolve, reducedMotion ? 0 : EXIT_DURATION_MS),
+      );
+      window.location.href = `${target.pathname}${target.search}${target.hash}`;
+      return true;
+    }
+
+    const startup = { complete, fail };
+    activeStartup = startup;
     contentObserver = new MutationObserver(blockPageContent);
     contentObserver.observe(document.body, { childList: true });
     blockPageContent();
-
     overlay
       .querySelector(".nexus-startup__continue")
-      .addEventListener("click", () => dismiss(true));
-    overlay
-      .querySelector(".nexus-startup__retry")
-      .addEventListener("click", () => {
-        sessionStorage.removeItem(STARTUP_KEY);
-        window.location.reload();
-      });
+      .addEventListener("click", fail);
     overlay.focus();
+    window.addEventListener("pagehide", onPageHide, { once: true });
+    timeoutTimer = window.setTimeout(showSlowState, SLOW_REQUEST_DURATION_MS);
 
-    if (timedOut) showSlowState();
-    if (pageReady) scheduleDismissal();
+    return startup;
   }
 
-  function scheduleDismissal() {
-    const remaining = Math.max(
-      0,
-      minimumDuration - (performance.now() - startedAt),
-    );
-    minimumTimer = window.setTimeout(dismiss, remaining);
-  }
-
-  function onPageLoad() {
-    pageReady = true;
-    window.clearTimeout(timeoutTimer);
-    scheduleDismissal();
-  }
-
-  window.addEventListener("load", onPageLoad, { once: true });
-  window.addEventListener("pagehide", onPageHide, { once: true });
-  timeoutTimer = window.setTimeout(() => {
-    timedOut = true;
-    showSlowState();
-  }, MAXIMUM_WAIT_MS);
-
-  if (document.body) {
-    createOverlay();
-  } else {
-    bodyObserver = new MutationObserver(() => {
-      if (!document.body) return;
-      bodyObserver.disconnect();
-      bodyObserver = null;
-      createOverlay();
-    });
-    bodyObserver.observe(document.documentElement, { childList: true });
-    domReadyHandler = () => {
-      if (bodyObserver) {
-        bodyObserver.disconnect();
-        bodyObserver = null;
-      }
-      domReadyHandler = null;
-      createOverlay();
-    };
-    document.addEventListener("DOMContentLoaded", domReadyHandler, {
-      once: true,
-    });
-  }
-
+  window.MandelaNexusStartup = { start };
 })();

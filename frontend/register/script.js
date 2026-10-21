@@ -7,6 +7,7 @@
 
 const registerForm = document.getElementById("registerForm");
 const errorBanner = document.getElementById("errorBanner");
+let registrationInProgress = false;
 
 // If already logged in, there's nothing to register for.
 if (SmsAuth.isLoggedIn()) {
@@ -24,7 +25,12 @@ function clearError() {
 
 registerForm.addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (registrationInProgress) return;
+  registrationInProgress = true;
+  const submitButton = registerForm.querySelector('button[type="submit"]');
+  submitButton.disabled = true;
   clearError();
+  const startup = window.MandelaNexusStartup?.start();
 
   const code = document.getElementById("regCode").value.trim();
   const role = document.getElementById("regRole").value;
@@ -40,8 +46,14 @@ registerForm.addEventListener("submit", async (e) => {
       password,
       role,
     });
-    window.location.href = SmsAuth.homeUrlForRole(user.role);
+    const destination = SmsAuth.homeUrlForRole(user.role);
+    if (!startup || !(await startup.complete(destination))) {
+      window.location.href = destination;
+    }
   } catch (err) {
+    await startup?.fail();
     showError(err.message);
+    registrationInProgress = false;
+    submitButton.disabled = false;
   }
 });

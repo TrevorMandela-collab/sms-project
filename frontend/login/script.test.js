@@ -6,7 +6,7 @@ const vm = require("node:vm");
 
 const script = fs.readFileSync(path.join(__dirname, "script.js"), "utf8");
 
-function createLoginPage(login) {
+function createLoginPage(login, startup = null, location = { href: "" }) {
   const listeners = new Map();
   const elements = new Map();
 
@@ -26,7 +26,6 @@ function createLoginPage(login) {
 
   const loginForm = element("loginForm");
   loginForm.querySelector = () => element("submitButton");
-
   const context = {
     document: {
       getElementById: element,
@@ -37,13 +36,15 @@ function createLoginPage(login) {
       login,
     },
     window: {
-      location: { href: "" },
+      location,
+      MandelaNexusStartup: startup,
     },
   };
   vm.runInNewContext(script, context);
 
   return {
     elements,
+    location,
     submit() {
       return listeners.get("loginForm:submit")({ preventDefault() {} });
     },
@@ -89,4 +90,37 @@ test("allows another login attempt after an unsuccessful login", async () => {
   await page.submit();
 
   assert.equal(calls, 2);
+});
+
+test("starts the loader before login and completes the reveal before navigation", async () => {
+  const events = [];
+  const startup = {
+    start() {
+      events.push("loader");
+      return {
+        async complete(destination) {
+          events.push("reveal");
+          location.href = destination;
+          return true;
+        },
+        async fail() {
+          events.push("dismiss");
+        },
+      };
+    },
+  };
+  const location = { href: "" };
+  const page = createLoginPage(
+    async () => {
+      events.push("login");
+      return { role: "admin" };
+    },
+    startup,
+    location,
+  );
+
+  await page.submit();
+
+  assert.deepEqual(events, ["loader", "login", "reveal"]);
+  assert.equal(page.location.href, "../dashboard/index.html");
 });

@@ -5,7 +5,6 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const script = fs.readFileSync(path.join(__dirname, "startup.js"), "utf8");
-const startupKey = "mandela-nexus-startup-seen";
 
 class FakeElement {
   constructor(name) {
@@ -21,10 +20,6 @@ class FakeElement {
       contains: (value) => this.classes.has(value),
       remove: (value) => this.classes.delete(value),
     };
-  }
-
-  set className(value) {
-    this.classes = new Set(value.split(/\s+/).filter(Boolean));
   }
 
   setAttribute(name, value) {
@@ -67,7 +62,6 @@ class FakeElement {
       [".nexus-startup__notice", new FakeElement("p")],
       [".nexus-startup__actions", new FakeElement("div")],
       [".nexus-startup__continue", new FakeElement("button")],
-      [".nexus-startup__retry", new FakeElement("button")],
     ]);
     this.elements.get(".nexus-startup__notice").hidden = true;
     this.elements.get(".nexus-startup__actions").hidden = true;
@@ -82,23 +76,25 @@ class FakeElement {
 }
 
 function createPage({
-  pathname = "/login/index.html",
-  token = null,
-  seen = null,
   reducedMotion = false,
-  readyState = "interactive",
+  savedReducedMotion = false,
   originalAriaHidden = null,
 } = {}) {
   let now = 0;
   let nextTimer = 1;
   const timers = new Map();
   const windowListeners = new Map();
-  const documentListeners = new Map();
   const values = new Map();
-  const location = { pathname, reloadCount: 0, reload() { this.reloadCount += 1; } };
+  const location = {
+    href: "http://localhost/login/index.html",
+    origin: "http://localhost",
+    reloadCount: 0,
+    reload() {
+      this.reloadCount += 1;
+    },
+  };
 
-  if (token) values.set("sms_token", token);
-  if (seen) values.set(startupKey, seen);
+  if (savedReducedMotion) values.set("sms:reduce-motion", "true");
 
   const storage = {
     getItem(key) {
@@ -123,11 +119,7 @@ function createPage({
   const document = {
     body,
     documentElement,
-    readyState,
     createElement: (name) => new FakeElement(name),
-    addEventListener(type, callback) {
-      documentListeners.set(type, callback);
-    },
   };
 
   const window = {
@@ -164,21 +156,14 @@ function createPage({
       Math,
       MutationObserver: FakeMutationObserver,
       Array,
+      URL,
       document,
       localStorage: storage,
       performance: { now: () => now },
-      sessionStorage: storage,
       window,
     },
     { filename: "startup.js" },
   );
-
-  function dispatchWindowEvent(type) {
-    const listener = windowListeners.get(type);
-    if (!listener) return;
-    listener.callback();
-    if (listener.once) windowListeners.delete(type);
-  }
 
   function advance(milliseconds) {
     const target = now + milliseconds;
@@ -199,60 +184,83 @@ function createPage({
     appContent,
     advance,
     body,
-    dispatchWindowEvent,
     documentElement,
     location,
-    sessionStorage: storage,
+    start: () => window.MandelaNexusStartup.start(),
     startupOverlay: () =>
       body.children.find((element) => element.id === "nexus-startup") || null,
   };
 }
 
-test("does not start on an unauthenticated protected page", () => {
-  const page = createPage({ pathname: "/dashboard/index.html" });
+async function flushPromises() {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+test("does not show until login or registration starts the flow", () => {
+  const page = createPage();
 
   assert.equal(page.startupOverlay(), null);
-  assert.equal(
-    page.documentElement.classList.contains("nexus-startup-pending"),
-    false,
-  );
-  assert.equal(page.sessionStorage.getItem(startupKey), null);
-});
 
-test("does not interrupt a signed-in redirect from the login page", () => {
-  const page = createPage({ token: "existing-token" });
+  const startup = page.start();
 
-  assert.equal(page.startupOverlay(), null);
-  assert.equal(page.sessionStorage.getItem(startupKey), null);
-});
-
-test("waits for page load and the minimum duration before restoring content", () => {
-  const page = createPage({ originalAriaHidden: "false" });
-  const overlay = page.startupOverlay();
-
-  assert.ok(overlay);
+  assert.ok(page.startupOverlay());
+  assert.equal(page.startupOverlay().classList.contains("is-revealing"), false);
   assert.equal(page.appContent.getAttribute("inert"), "");
   assert.equal(page.appContent.getAttribute("aria-hidden"), "true");
+  assert.equal(page.start(), startup);
+});
 
-  page.dispatchWindowEvent("load");
-  page.advance(3649);
-  assert.ok(page.startupOverlay());
+test("plays the loader, then the reveal, and navigates after the fade", async () => {
+  const page = createPage({ originalAriaHidden: "false" });
+  const startup = page.start();
+  const navigation = startup.complete("../dashboard/index.html");
+
+  page.advance(899);
+  await flushPromises();
+  assert.equal(page.startupOverlay().classList.contains("is-revealing"), false);
 
   page.advance(1);
-  assert.ok(page.startupOverlay());
+  await flushPromises();
+  assert.equal(page.startupOverlay().classList.contains("is-revealing"), true);
+
+  page.advance(1899);
+  await flushPromises();
+  assert.equal(page.startupOverlay().classList.contains("is-exiting"), false);
+
+  page.advance(1);
+  await flushPromises();
+  assert.equal(page.startupOverlay().classList.contains("is-exiting"), true);
+
   page.advance(380);
+  await navigation;
+
+  assert.equal(page.location.href, "/dashboard/index.html");
+  assert.ok(page.startupOverlay());
+  assert.equal(page.appContent.getAttribute("inert"), "");
+});
+
+test("removes the loader and restores the form after failed login", async () => {
+  const page = createPage({ originalAriaHidden: "false" });
+  const startup = page.start();
+  const failure = startup.fail();
+
+  page.advance(380);
+  await failure;
 
   assert.equal(page.startupOverlay(), null);
+  assert.equal(page.appContent.getAttribute("inert"), null);
+  assert.equal(page.appContent.getAttribute("aria-hidden"), "false");
   assert.equal(
     page.documentElement.classList.contains("nexus-startup-pending"),
     false,
   );
-  assert.equal(page.appContent.getAttribute("inert"), null);
-  assert.equal(page.appContent.getAttribute("aria-hidden"), "false");
 });
 
-test("offers a working continue action when initialization times out", () => {
+test("offers a way to continue without animation when login takes too long", async () => {
   const page = createPage();
+  page.start();
   const overlay = page.startupOverlay();
 
   page.advance(12000);
@@ -265,25 +273,40 @@ test("offers a working continue action when initialization times out", () => {
   assert.equal(actions.hidden, false);
   assert.equal(continueButton.focused, true);
 
-  continueButton.listeners.get("click")();
+  const failure = continueButton.listeners.get("click")();
   page.advance(380);
-
+  await failure;
   assert.equal(page.startupOverlay(), null);
-  assert.equal(
-    page.documentElement.classList.contains("nexus-startup-pending"),
-    false,
-  );
 });
 
-test("uses the short static reveal for reduced motion", () => {
+test("skips motion while keeping the same login flow for reduced-motion users", async () => {
   const page = createPage({ reducedMotion: true });
-  const overlay = page.startupOverlay();
+  const startup = page.start();
+  const navigation = startup.complete("../dashboard/index.html");
 
-  assert.equal(overlay.classList.contains("is-reduced-motion"), true);
-  page.dispatchWindowEvent("load");
-  page.advance(799);
-  assert.ok(page.startupOverlay());
-  page.advance(1);
+  page.advance(0);
+  await flushPromises();
+  assert.equal(page.startupOverlay().classList.contains("is-revealing"), true);
 
-  assert.equal(page.startupOverlay(), null);
+  page.advance(0);
+  await flushPromises();
+  assert.equal(page.startupOverlay().classList.contains("is-exiting"), true);
+
+  page.advance(0);
+  assert.equal(await navigation, true);
+  assert.equal(page.location.href, "/dashboard/index.html");
+});
+
+test("honors the saved reduced-motion preference", async () => {
+  const page = createPage({ savedReducedMotion: true });
+  const startup = page.start();
+  const navigation = startup.complete("../dashboard/index.html");
+
+  page.advance(0);
+  await flushPromises();
+  assert.equal(page.startupOverlay().classList.contains("is-revealing"), true);
+  page.advance(0);
+  await flushPromises();
+  page.advance(0);
+  assert.equal(await navigation, true);
 });
