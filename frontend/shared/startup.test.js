@@ -79,12 +79,19 @@ function createPage({
   reducedMotion = false,
   savedReducedMotion = false,
   originalAriaHidden = null,
+  startupAlreadyPlayed = false,
+  navigationType = "navigate",
 } = {}) {
   let now = 0;
   let nextTimer = 1;
   const timers = new Map();
   const windowListeners = new Map();
+  const documentListeners = new Map();
   const values = new Map();
+  const sessionValues = new Map();
+  if (startupAlreadyPlayed) {
+    sessionValues.set("mandela-nexus-startup-played", "true");
+  }
   const location = {
     href: "http://localhost/login/index.html",
     origin: "http://localhost",
@@ -119,19 +126,27 @@ function createPage({
   const document = {
     body,
     documentElement,
+    readyState: "loading",
     createElement: (name) => new FakeElement(name),
+    addEventListener(type, callback) {
+      documentListeners.set(type, callback);
+    },
   };
 
   const window = {
     location,
     matchMedia: () => ({ matches: reducedMotion }),
     addEventListener(type, callback, options = {}) {
-      windowListeners.set(type, { callback, once: options.once === true });
+      const listeners = windowListeners.get(type) || [];
+      listeners.push({ callback, once: options.once === true });
+      windowListeners.set(type, listeners);
     },
     removeEventListener(type, callback) {
-      if (windowListeners.get(type)?.callback === callback) {
-        windowListeners.delete(type);
-      }
+      const listeners = windowListeners.get(type) || [];
+      windowListeners.set(
+        type,
+        listeners.filter((listener) => listener.callback !== callback),
+      );
     },
     setTimeout(callback, delay = 0) {
       const id = nextTimer++;
@@ -159,8 +174,20 @@ function createPage({
       URL,
       document,
       localStorage: storage,
-      performance: { now: () => now },
+      sessionStorage: {
+        getItem(key) {
+          return sessionValues.has(key) ? sessionValues.get(key) : null;
+        },
+        setItem(key, value) {
+          sessionValues.set(key, String(value));
+        },
+      },
+      performance: {
+        now: () => now,
+        getEntriesByType: () => [{ type: navigationType }],
+      },
       window,
+      console,
     },
     { filename: "startup.js" },
   );
@@ -186,9 +213,29 @@ function createPage({
     body,
     documentElement,
     location,
+    fireDocumentEvent(type) {
+      documentListeners.get(type)?.();
+    },
+    fireWindowEvent(type) {
+      const listeners = windowListeners.get(type) || [];
+      listeners.slice().forEach((listener) => {
+        listener.callback();
+        if (listener.once) {
+          windowListeners.set(
+            type,
+            (windowListeners.get(type) || []).filter(
+              (current) => current !== listener,
+            ),
+          );
+        }
+      });
+    },
     start: () => window.MandelaNexusStartup.start(),
+    startupWasPlayed: () =>
+      sessionValues.get("mandela-nexus-startup-played") === "true",
     startupOverlay: () =>
       body.children.find((element) => element.id === "nexus-startup") || null,
+    navigationType,
   };
 }
 
@@ -198,18 +245,66 @@ async function flushPromises() {
   await Promise.resolve();
 }
 
-test("does not show until login or registration starts the flow", () => {
+test("keeps the explicit authentication overlay reusable", () => {
   const page = createPage();
 
   assert.equal(page.startupOverlay(), null);
+  assert.equal(page.documentElement.classList.contains("nexus-startup-booting"), true);
 
   const startup = page.start();
 
   assert.ok(page.startupOverlay());
+  assert.equal(page.documentElement.classList.contains("nexus-startup-booting"), false);
   assert.equal(page.startupOverlay().classList.contains("is-revealing"), false);
   assert.equal(page.appContent.getAttribute("inert"), "");
   assert.equal(page.appContent.getAttribute("aria-hidden"), "true");
   assert.equal(page.start(), startup);
+});
+
+test("automatically plays once on a cold page load and reveals the app after load", async () => {
+  const page = createPage();
+
+  page.fireDocumentEvent("DOMContentLoaded");
+  const overlay = page.startupOverlay();
+  assert.ok(overlay);
+  assert.equal(page.appContent.getAttribute("inert"), "");
+  assert.equal(page.startupWasPlayed(), true);
+
+  page.fireWindowEvent("load");
+  page.advance(900);
+  await flushPromises();
+  assert.equal(overlay.classList.contains("is-revealing"), true);
+
+  page.advance(1900);
+  await flushPromises();
+  page.advance(380);
+  await flushPromises();
+
+  assert.equal(page.startupOverlay(), null);
+  assert.equal(page.appContent.getAttribute("inert"), null);
+  assert.equal(
+    page.documentElement.classList.contains("nexus-startup-pending"),
+    false,
+  );
+});
+
+test("does not replay the page-load animation during in-app navigation", () => {
+  const page = createPage({ startupAlreadyPlayed: true });
+
+  assert.equal(page.documentElement.classList.contains("nexus-startup-booting"), false);
+  page.fireDocumentEvent("DOMContentLoaded");
+  assert.equal(page.startupOverlay(), null);
+});
+
+test("replays the page-load animation after a hard refresh", () => {
+  const page = createPage({
+    startupAlreadyPlayed: true,
+    navigationType: "reload",
+  });
+
+  assert.equal(page.documentElement.classList.contains("nexus-startup-booting"), true);
+  page.fireDocumentEvent("DOMContentLoaded");
+  assert.ok(page.startupOverlay());
 });
 
 test("plays the loader, then the reveal, and navigates after the fade", async () => {
@@ -284,11 +379,11 @@ test("skips motion while keeping the same login flow for reduced-motion users", 
   const startup = page.start();
   const navigation = startup.complete("../dashboard/index.html");
 
-  page.advance(0);
+  page.advance(450);
   await flushPromises();
   assert.equal(page.startupOverlay().classList.contains("is-revealing"), true);
 
-  page.advance(0);
+  page.advance(900);
   await flushPromises();
   assert.equal(page.startupOverlay().classList.contains("is-exiting"), true);
 
@@ -302,10 +397,10 @@ test("honors the saved reduced-motion preference", async () => {
   const startup = page.start();
   const navigation = startup.complete("../dashboard/index.html");
 
-  page.advance(0);
+  page.advance(450);
   await flushPromises();
   assert.equal(page.startupOverlay().classList.contains("is-revealing"), true);
-  page.advance(0);
+  page.advance(900);
   await flushPromises();
   page.advance(0);
   assert.equal(await navigation, true);

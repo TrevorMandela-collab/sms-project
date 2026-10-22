@@ -2,8 +2,21 @@
   const MINIMUM_LOADER_DURATION_MS = 900;
   const REVEAL_DURATION_MS = 1900;
   const EXIT_DURATION_MS = 380;
+  const REDUCED_MOTION_LOADER_DURATION_MS = 450;
+  const REDUCED_MOTION_REVEAL_DURATION_MS = 900;
   const SLOW_REQUEST_DURATION_MS = 12000;
+  const PAGE_READY_TIMEOUT_MS = 10000;
+  const SESSION_STARTUP_KEY = "mandela-nexus-startup-played";
   let activeStartup;
+  let pageStartupTimer;
+
+  function shouldStartOnPageLoad() {
+    const navigation = performance.getEntriesByType("navigation")[0];
+    return (
+      sessionStorage.getItem(SESSION_STARTUP_KEY) !== "true" ||
+      navigation?.type === "reload"
+    );
+  }
 
   function isReducedMotion() {
     return (
@@ -17,6 +30,8 @@
     if (!document.body) {
       throw new Error("The startup animation requires a loaded page body.");
     }
+    window.clearTimeout(pageStartupTimer);
+    pageStartupTimer = null;
 
     const reducedMotion = isReducedMotion();
     const startedAt = performance.now();
@@ -71,6 +86,7 @@
     if (reducedMotion) overlay.classList.add("is-reduced-motion");
     document.documentElement.classList.add("nexus-startup-pending");
     document.body.appendChild(overlay);
+    document.documentElement.classList.remove("nexus-startup-booting");
 
     function blockPageContent() {
       Array.from(document.body.children).forEach((element) => {
@@ -153,21 +169,32 @@
       await close();
     }
 
-    async function complete(destination) {
+    async function playReveal() {
       if (dismissed) return false;
 
       window.clearTimeout(timeoutTimer);
-      const loaderRemaining = reducedMotion
-        ? 0
-        : Math.max(0, MINIMUM_LOADER_DURATION_MS - (performance.now() - startedAt));
+      const minimumLoaderDuration = reducedMotion
+        ? REDUCED_MOTION_LOADER_DURATION_MS
+        : MINIMUM_LOADER_DURATION_MS;
+      const revealDuration = reducedMotion
+        ? REDUCED_MOTION_REVEAL_DURATION_MS
+        : REVEAL_DURATION_MS;
+      const loaderRemaining = Math.max(
+        0,
+        minimumLoaderDuration - (performance.now() - startedAt),
+      );
       await new Promise((resolve) => window.setTimeout(resolve, loaderRemaining));
       if (dismissed) return false;
 
       overlay.classList.add("is-revealing");
       await new Promise((resolve) =>
-        window.setTimeout(resolve, reducedMotion ? 0 : REVEAL_DURATION_MS),
+        window.setTimeout(resolve, revealDuration),
       );
-      if (dismissed) return false;
+      return !dismissed;
+    }
+
+    async function complete(destination) {
+      if (!(await playReveal())) return false;
 
       const target = new URL(destination, window.location.href);
       if (target.origin !== window.location.origin) {
@@ -181,7 +208,13 @@
       return true;
     }
 
-    const startup = { complete, fail };
+    async function reveal() {
+      if (!(await playReveal())) return false;
+      await close();
+      return true;
+    }
+
+    const startup = { complete, fail, reveal };
     activeStartup = startup;
     contentObserver = new MutationObserver(blockPageContent);
     contentObserver.observe(document.body, { childList: true });
@@ -197,4 +230,51 @@
   }
 
   window.MandelaNexusStartup = { start };
+
+  if (shouldStartOnPageLoad()) {
+    document.documentElement.classList.add("nexus-startup-booting");
+    pageStartupTimer = window.setTimeout(() => {
+      document.documentElement.classList.remove("nexus-startup-booting");
+      console.error("[startup] Page initialization did not reach DOMContentLoaded.");
+    }, SLOW_REQUEST_DURATION_MS);
+    const beginPageStartup = () => {
+      sessionStorage.setItem(SESSION_STARTUP_KEY, "true");
+      let revealStarted = false;
+      let readyTimer;
+      let startup;
+      const revealPage = () => {
+        if (revealStarted || !startup) return;
+        revealStarted = true;
+        window.clearTimeout(readyTimer);
+        startup.reveal().catch((error) => {
+          console.error("[startup] Unable to complete the page reveal.", error);
+          startup.fail().catch((dismissError) => {
+            console.error("[startup] Unable to dismiss the page overlay.", dismissError);
+          });
+        });
+      };
+
+      try {
+        startup = start();
+      } catch (error) {
+        window.clearTimeout(pageStartupTimer);
+        pageStartupTimer = null;
+        document.documentElement.classList.remove("nexus-startup-booting");
+        console.error("[startup] Unable to initialize the page overlay.", error);
+        return;
+      }
+
+      window.addEventListener("load", revealPage, { once: true });
+      readyTimer = window.setTimeout(revealPage, PAGE_READY_TIMEOUT_MS);
+      if (document.readyState === "complete") revealPage();
+    };
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", beginPageStartup, {
+        once: true,
+      });
+    } else {
+      beginPageStartup();
+    }
+  }
 })();

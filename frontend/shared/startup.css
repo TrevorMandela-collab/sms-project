@@ -5,6 +5,14 @@ html.nexus-startup-pending {
   background: #217d73;
 }
 
+html.nexus-startup-booting {
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden !important;
+  background: #217d73;
+}
+
+html.nexus-startup-booting body,
 html.nexus-startup-pending body {
   height: 100%;
   min-height: 0 !important;
@@ -12,8 +20,38 @@ html.nexus-startup-pending body {
   background: transparent !important;
 }
 
+html.nexus-startup-booting body > *,
 html.nexus-startup-pending body > :not(#nexus-startup) {
   visibility: hidden !important;
+}
+
+html.nexus-startup-booting::before,
+html.nexus-startup-booting::after {
+  position: fixed;
+  z-index: 2147483647;
+  pointer-events: none;
+  content: "";
+}
+
+html.nexus-startup-booting::before {
+  inset: 0;
+  background: #217d73;
+}
+
+html.nexus-startup-booting::after {
+  top: 50%;
+  left: 50%;
+  width: clamp(150px, 40vw, 190px);
+  height: clamp(84px, 24vw, 120px);
+  transform: translate(-50%, -50%);
+  background:
+    linear-gradient(#fff, #fff) 0 100% / 18px 28px,
+    linear-gradient(#fff, #fff) 33px 100% / 18px 52px,
+    linear-gradient(#fff, #fff) 66px 100% / 18px 76px,
+    linear-gradient(#fff, #fff) 99px 100% / 18px 100px,
+    linear-gradient(#fff, #fff) 132px 100% / 18px 120px;
+  background-repeat: no-repeat;
+  animation: nexus-boot-bars 1.15s ease-in-out infinite alternate;
 }
 
 .nexus-startup {
@@ -256,7 +294,23 @@ html.nexus-startup-pending body > :not(#nexus-startup) {
 }
 
 .nexus-startup.is-reduced-motion .nexus-startup__loader {
-  display: none;
+  display: block;
+}
+
+.nexus-startup.is-reduced-motion .nexus-loader-bar,
+.nexus-startup.is-reduced-motion .nexus-loader-indicator {
+  animation: none;
+}
+
+.nexus-startup.is-reduced-motion .nexus-loader-indicator {
+  transform: translate(
+    calc(var(--nexus-loader-unit) * 5.45),
+    calc(var(--nexus-loader-unit) * -0.48)
+  );
+}
+
+.nexus-startup.is-reduced-motion {
+  transition-duration: 0.01ms;
 }
 
 .nexus-startup.is-reduced-motion .nexus-startup__reveal {
@@ -293,6 +347,26 @@ html.nexus-startup-pending body > :not(#nexus-startup) {
 @keyframes nexus-bar-pulse {
   from {
     transform: scaleY(0.58);
+  }
+
+  @keyframes nexus-boot-bars {
+    from {
+      background-size:
+        18px 18px,
+        18px 34px,
+        18px 50px,
+        18px 66px,
+        18px 82px;
+    }
+
+    to {
+      background-size:
+        18px 28px,
+        18px 52px,
+        18px 76px,
+        18px 100px,
+        18px 120px;
+    }
   }
 
   to {
@@ -406,6 +480,10 @@ html.nexus-startup-pending body > :not(#nexus-startup) {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html.nexus-startup-booting::after {
+    animation: none;
+  }
+
   .nexus-startup:not(.is-reduced-motion) *,
   .nexus-startup:not(.is-reduced-motion)::before {
     animation-duration: 0.01ms !important;
