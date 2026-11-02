@@ -51,3 +51,78 @@ jobs:
       - run: npm run test:postgres
         env:
           TEST_DATABASE_URL: postgresql://sms_test:sms_test_password@localhost:5432/sms_test
+
+  notify:
+    name: Telegram notification
+    if: always()
+    needs:
+      - sqlite
+      - postgres
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send Telegram result
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SQLITE_RESULT: ${{ needs.sqlite.result }}
+          POSTGRES_RESULT: ${{ needs.postgres.result }}
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          token = os.environ.get("TELEGRAM_BOT_TOKEN")
+          chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+
+          if not token or not chat_id:
+              print("Telegram secrets unavailable. Notification skipped.")
+              raise SystemExit(0)
+
+          sqlite = os.environ["SQLITE_RESULT"]
+          postgres = os.environ["POSTGRES_RESULT"]
+
+          passed = sqlite == "success" and postgres == "success"
+          status = "PASSED" if passed else "FAILED"
+          icon = "✅" if passed else "❌"
+
+          message = (
+              f"{icon} NOVEXA — GitHub Tests {status}\n\n"
+              f"Repository: {os.environ['REPOSITORY']}\n"
+              f"Branch: {os.environ['BRANCH']}\n\n"
+              f"SQLite: {sqlite}\n"
+              f"PostgreSQL: {postgres}\n\n"
+              f"Workflow: {os.environ['RUN_URL']}"
+          )
+
+          payload = json.dumps({
+              "chat_id": chat_id,
+              "text": message,
+              "disable_web_page_preview": True
+          }).encode()
+
+          request = urllib.request.Request(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              data=payload,
+              headers={"Content-Type": "application/json"},
+              method="POST"
+          )
+
+          try:
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  result = json.load(response)
+
+              if not result.get("ok"):
+                  raise RuntimeError("Telegram rejected notification")
+
+              print("NOVEXA notification sent.")
+
+          except Exception as error:
+              print(f"Telegram notification failed: {type(error).__name__}")
+              raise SystemExit(1)
+          PY
