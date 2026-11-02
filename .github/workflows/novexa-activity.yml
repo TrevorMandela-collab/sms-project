@@ -1,0 +1,146 @@
+
+name: NOVEXA Developer Activity
+
+on:
+  push:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - ready_for_review
+      - closed
+  deployment_status:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  deployments: read
+
+jobs:
+  notify:
+    name: Send developer activity alert
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send Telegram notification
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          COMMIT_COUNT: ${{ github.event.size }}
+          COMPARE_URL: ${{ github.event.compare }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_ACTION: ${{ github.event.action }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+          PR_SOURCE: ${{ github.event.pull_request.head.ref }}
+          PR_TARGET: ${{ github.event.pull_request.base.ref }}
+          DEPLOY_STATE: ${{ github.event.deployment_status.state }}
+          DEPLOY_ENVIRONMENT: ${{ github.event.deployment.environment }}
+          DEPLOY_URL: ${{ github.event.deployment_status.target_url }}
+
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          token = os.environ.get("TELEGRAM_BOT_TOKEN")
+          chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+
+          if not token or not chat_id:
+              print("Telegram secrets unavailable.")
+              raise SystemExit(1)
+
+          event = os.environ["EVENT_NAME"]
+          repo = os.environ["REPOSITORY"]
+          actor = os.environ["ACTOR"]
+          run_url = os.environ["RUN_URL"]
+
+          if event == "push":
+              message = (
+                  "📦 NOVEXA — Code pushed\n\n"
+                  f"Repository: {repo}\n"
+                  f"Branch: {os.environ['BRANCH']}\n"
+                  f"Developer: {actor}\n"
+                  f"Commits in push: {os.environ.get('COMMIT_COUNT') or 'N/A'}\n\n"
+                  f"Latest commit:\n{os.environ.get('COMMIT_MESSAGE') or 'No commit message'}\n\n"
+                  f"Compare: {os.environ.get('COMPARE_URL') or 'N/A'}\n"
+                  f"Activity: {run_url}"
+              )
+
+          elif event == "pull_request":
+              action = os.environ.get("PR_ACTION")
+              merged = os.environ.get("PR_MERGED") == "true"
+
+              if action == "closed" and merged:
+                  status = "MERGED"
+                  icon = "✅"
+              elif action == "closed":
+                  status = "CLOSED"
+                  icon = "⚪"
+              else:
+                  status = action.upper()
+                  icon = "🔔"
+
+              message = (
+                  f"{icon} NOVEXA — Pull Request {status}\n\n"
+                  f"Repository: {repo}\n"
+                  f"PR: #{os.environ.get('PR_NUMBER')}\n"
+                  f"Title: {os.environ.get('PR_TITLE')}\n"
+                  f"Developer: {actor}\n"
+                  f"Source: {os.environ.get('PR_SOURCE')}\n"
+                  f"Target: {os.environ.get('PR_TARGET')}\n\n"
+                  f"Pull request: {os.environ.get('PR_URL')}\n"
+                  f"Activity: {run_url}"
+              )
+
+          elif event == "deployment_status":
+              state = os.environ.get("DEPLOY_STATE", "unknown").upper()
+              icon = "✅" if state == "SUCCESS" else "❌" if state == "FAILURE" else "🚀"
+
+              message = (
+                  f"{icon} NOVEXA — Deployment {state}\n\n"
+                  f"Repository: {repo}\n"
+                  f"Environment: {os.environ.get('DEPLOY_ENVIRONMENT')}\n"
+                  f"Developer: {actor}\n"
+                  f"Deployment: {os.environ.get('DEPLOY_URL') or 'N/A'}\n\n"
+                  f"Activity: {run_url}"
+              )
+
+          else:
+              message = (
+                  "🧪 NOVEXA — Activity notification test\n\n"
+                  f"Repository: {repo}\n"
+                  f"Triggered by: {actor}\n"
+                  f"Activity: {run_url}"
+              )
+
+          payload = json.dumps({
+              "chat_id": chat_id,
+              "text": message,
+              "disable_web_page_preview": True
+          }).encode("utf-8")
+
+          request = urllib.request.Request(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              data=payload,
+              headers={"Content-Type": "application/json"},
+              method="POST"
+          )
+
+          with urllib.request.urlopen(request, timeout=20) as response:
+              result = json.load(response)
+
+          if not result.get("ok"):
+              raise RuntimeError("Telegram rejected the notification")
+
+          print("NOVEXA activity notification sent successfully.")
+          PY
