@@ -7,7 +7,7 @@ const Database = require("better-sqlite3");
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sms-seed-test-"));
 const databasePath = path.join(directory, "seed.sqlite");
-const seedPath = path.join(__dirname, "..", "utils", "seed.js");
+const seedPath = path.join(__dirname, "sqlite-seed.js");
 const password = "seed-test-password-123!";
 let database;
 let generatedDatabase;

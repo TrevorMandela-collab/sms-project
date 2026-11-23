@@ -5,15 +5,36 @@ const fs = require("fs");
 const Module = require("module");
 const os = require("os");
 const path = require("path");
-const Database = require("better-sqlite3");
+const SqliteDatabase = require("better-sqlite3");
 const WebSocket = require("ws");
 const { spawn, spawnSync } = require("child_process");
+const {
+  combineSmokeErrors,
+  observeChildExit,
+  stopChildProcess,
+} = require("./child-process-shutdown");
 
 const port = 4311;
 const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "sms-smoke-test-"));
 const databasePath = path.join(tempDirectory, "smoke-test.sqlite");
 const repositoryDataDirectory = path.resolve(__dirname, "..", "data");
 const baseUrl = `http://127.0.0.1:${port}/api`;
+const openDatabases = new Set();
+const activeRealtimeSockets = new Set();
+const requestControllers = new Set();
+const outstandingResponses = new Set();
+
+function Database(...args) {
+  const database = new SqliteDatabase(...args);
+  openDatabases.add(database);
+  return database;
+}
+
+function trackRealtimeSocket(socket) {
+  activeRealtimeSockets.add(socket);
+  socket.once("close", () => activeRealtimeSockets.delete(socket));
+  return socket;
+}
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -21,7 +42,9 @@ function wait(ms) {
 
 function openRealtimeSocket(token) {
   const suffix = token ? `?token=${encodeURIComponent(token)}` : "";
-  const socket = new WebSocket(`ws://127.0.0.1:${port}/ws${suffix}`);
+  const socket = trackRealtimeSocket(
+    new WebSocket(`ws://127.0.0.1:${port}/ws${suffix}`),
+  );
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       socket.terminate();
@@ -48,7 +71,9 @@ function openRealtimeSocket(token) {
 
 function waitForRealtimeClose(token) {
   const suffix = token ? `?token=${encodeURIComponent(token)}` : "";
-  const socket = new WebSocket(`ws://127.0.0.1:${port}/ws${suffix}`);
+  const socket = trackRealtimeSocket(
+    new WebSocket(`ws://127.0.0.1:${port}/ws${suffix}`),
+  );
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       socket.terminate();
@@ -174,53 +199,93 @@ function getProtectedRouteChecks() {
   return checks;
 }
 
-function waitForExit(child, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    if (child.closed) {
-      resolve();
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      child.removeListener("close", onClose);
-      child.removeListener("error", onError);
-      reject(new Error("Smoke-test server did not exit before the timeout"));
-    }, timeoutMs);
-    const cleanup = () => clearTimeout(timer);
-    const onClose = () => {
-      cleanup();
-      resolve();
-    };
-    const onError = (error) => {
-      cleanup();
-      reject(error);
-    };
-    child.once("close", onClose);
-    child.once("error", onError);
-  });
+async function fetchSmokeResponse(endpoint, options = {}) {
+  const controller = new AbortController();
+  requestControllers.add(controller);
+  try {
+    const response = await fetch(`${baseUrl}${endpoint}`, {
+      ...options,
+      signal: controller.signal,
+    });
+    if (response.body) outstandingResponses.add(response);
+    return response;
+  } catch (error) {
+    requestControllers.delete(controller);
+    throw error;
+  }
 }
 
-async function stopServer(child) {
-  const exited = waitForExit(child, 5000);
-  child.kill();
-  try {
-    await exited;
-  } catch (error) {
-    child.kill("SIGKILL");
-    await waitForExit(child, 1000).catch(() => {});
-    throw error;
+async function waitForServerReady(child, waitForExit, getOutput) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      return await fetchSmokeResponse("/health");
+    } catch (error) {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        const result = await waitForExit(1000);
+        const details = getOutput().trim();
+        const exitDetails = `code ${result.code}, signal ${result.signal}`;
+        throw new Error(
+          `Smoke-test server exited before becoming ready (${exitDetails}).${details ? `\n${details}` : ""}`,
+          { cause: error },
+        );
+      }
+      if (attempt === 99) throw error;
+      await wait(100);
+    }
   }
 }
 
 async function request(endpoint, options = {}) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
-      return await fetch(`${baseUrl}${endpoint}`, options);
+      return await fetchSmokeResponse(endpoint, options);
     } catch (error) {
       if (attempt === 99) throw error;
       await wait(100);
     }
   }
+}
+
+function waitForSocketClose(socket, timeoutMs = 1000) {
+  if (socket.readyState === WebSocket.CLOSED) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("Smoke-test WebSocket did not close before the timeout"));
+    }, timeoutMs);
+    const onClose = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {};
+    const cleanup = () => {
+      clearTimeout(timer);
+      socket.removeListener("close", onClose);
+      socket.removeListener("error", onError);
+      activeRealtimeSockets.delete(socket);
+    };
+    socket.once("close", onClose);
+    socket.on("error", onError);
+    if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+  });
+}
+
+function cancelResponseBody(response, timeoutMs = 1000) {
+  if (response.bodyUsed || !response.body || response.body.locked) {
+    return Promise.resolve();
+  }
+
+  let timer;
+  return Promise.race([
+    response.body.cancel(),
+    new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("Smoke-test response body did not close in time")),
+        timeoutMs,
+      );
+    }),
+  ]).finally(() => clearTimeout(timer));
 }
 
 async function assertProductionForgotPasswordDoesNotDiscloseToken() {
@@ -317,9 +382,10 @@ async function assertProductionForgotPasswordDoesNotDiscloseToken() {
 
 async function run() {
   let server;
+  let waitForServerExit;
   let realtimeSocket;
-  const realtimeSockets = [];
   let output = "";
+  let primaryError;
 
   try {
     await assertProductionForgotPasswordDoesNotDiscloseToken();
@@ -340,7 +406,7 @@ async function run() {
       "new temporary database path must not already exist",
     );
 
-    server = spawn(process.execPath, ["server.js"], {
+    server = spawn(process.execPath, [path.join(__dirname, "sqlite-server.js")], {
       cwd: path.join(__dirname, ".."),
       env: {
         ...process.env,
@@ -354,6 +420,7 @@ async function run() {
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
+    waitForServerExit = observeChildExit(server);
     server.stdout.on("data", (chunk) => {
       output += chunk;
     });
@@ -361,7 +428,11 @@ async function run() {
       output += chunk;
     });
 
-    const health = await request("/health");
+    const health = await waitForServerReady(
+      server,
+      waitForServerExit,
+      () => output,
+    );
     assert.equal(health.status, 200, "health endpoint should respond");
     for (const [method, endpoint] of getProtectedRouteChecks()) {
       const response = await request(endpoint, {
@@ -2181,8 +2252,10 @@ async function run() {
     assert.equal(suspensionInviteResponse.status, 201);
     const suspensionInvite = await suspensionInviteResponse.json();
     const accessToken = headers.Authorization.slice("Bearer ".length);
-    realtimeSocket = new WebSocket(
-      `ws://127.0.0.1:${port}/ws?token=${encodeURIComponent(accessToken)}`,
+    realtimeSocket = trackRealtimeSocket(
+      new WebSocket(
+        `ws://127.0.0.1:${port}/ws?token=${encodeURIComponent(accessToken)}`,
+      ),
     );
     await new Promise((resolve, reject) => {
       const timer = setTimeout(
@@ -2359,12 +2432,6 @@ async function run() {
     const parentChatSocket = await openRealtimeSocket(chatMemberAuth.token);
     const oldSchoolParentSocket = await openRealtimeSocket(parentAuth.token);
     const foreignChatSocket = await openRealtimeSocket(foreignAuth.token);
-    realtimeSockets.push(
-      adminChatSocket,
-      parentChatSocket,
-      oldSchoolParentSocket,
-      foreignChatSocket,
-    );
     adminChatSocket.send("not-json");
     adminChatSocket.send(JSON.stringify({ type: "join", chatId: testChat.id }));
     parentChatSocket.send(JSON.stringify({ type: "join", chatId: testChat.id }));
@@ -2791,29 +2858,81 @@ async function run() {
     const loggedOutRequest = await request("/students", { headers });
     assert.equal(loggedOutRequest.status, 401, "logout should invalidate the session token");
 
-    console.log("API smoke tests passed");
-  } finally {
-    if (realtimeSocket && realtimeSocket.readyState !== WebSocket.CLOSED) {
-      realtimeSocket.terminate();
-    }
-    for (const socket of realtimeSockets) {
-      if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
-    }
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanupErrors = [];
+  const responseCleanup = await Promise.allSettled(
+    [...outstandingResponses].map((response) =>
+      Promise.resolve().then(() => cancelResponseBody(response)),
+    ),
+  );
+  for (const result of responseCleanup) {
+    if (result.status === "rejected") cleanupErrors.push(result.reason);
+  }
+  outstandingResponses.clear();
+  for (const controller of requestControllers) {
     try {
-      if (server) await stopServer(server);
-    } finally {
-      fs.rmSync(tempDirectory, {
-        recursive: true,
-        force: true,
-        maxRetries: 20,
-        retryDelay: 250,
-      });
-      if (output && process.env.DEBUG_SMOKE) console.log(output);
+      controller.abort();
+    } catch (error) {
+      cleanupErrors.push(error);
     }
   }
+  requestControllers.clear();
+
+  const sockets = new Set(activeRealtimeSockets);
+  if (realtimeSocket) sockets.add(realtimeSocket);
+  const socketCleanup = await Promise.allSettled(
+    [...sockets].map((socket) =>
+      Promise.resolve().then(() => waitForSocketClose(socket)),
+    ),
+  );
+  for (const result of socketCleanup) {
+    if (result.status === "rejected") cleanupErrors.push(result.reason);
+  }
+  activeRealtimeSockets.clear();
+
+  for (const database of openDatabases) {
+    try {
+      if (database.open) database.close();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+  openDatabases.clear();
+
+  if (server) {
+    try {
+      await stopChildProcess(server, waitForServerExit);
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+
+  try {
+    fs.rmSync(tempDirectory, {
+      recursive: true,
+      force: true,
+      maxRetries: 20,
+      retryDelay: 250,
+    });
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  if (output && process.env.DEBUG_SMOKE) console.log(output);
+
+  const combinedError = combineSmokeErrors(primaryError, cleanupErrors);
+  if (combinedError) throw combinedError;
+  console.log("API smoke tests passed");
 }
 
 run().catch((error) => {
-  console.error(error.message);
+  console.error(error.stack || error.message);
+  if (error instanceof AggregateError) {
+    for (const detail of error.errors) {
+      console.error(detail.stack || detail.message);
+    }
+  }
   process.exitCode = 1;
 });

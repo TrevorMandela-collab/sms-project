@@ -56,20 +56,24 @@ function stopServer(child) {
 }
 
 async function run() {
-  const server = spawn(process.execPath, ["server.js"], {
-    cwd: path.join(__dirname, ".."),
-    env: {
-      ...process.env,
-      PORT: String(port),
-      SQLITE_PATH: databasePath,
-      DATABASE_URL: "",
-      JWT_SECRET: "qa-bugs-test-secret",
-      NODE_ENV: "test",
-      TRUST_PROXY_HOPS: "1",
-      QA_OWNER_EMAILS: `${ownerEmail},${secondOwnerEmail}`,
+  const server = spawn(
+    process.execPath,
+    [path.join(__dirname, "sqlite-server.js")],
+    {
+      cwd: path.join(__dirname, ".."),
+      env: {
+        ...process.env,
+        PORT: String(port),
+        SQLITE_PATH: databasePath,
+        DATABASE_URL: "",
+        JWT_SECRET: "qa-bugs-test-secret",
+        NODE_ENV: "test",
+        TRUST_PROXY_HOPS: "1",
+        QA_OWNER_EMAILS: `${ownerEmail},${secondOwnerEmail}`,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
     },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  );
   let output = "";
   server.stdout.on("data", (chunk) => { output += chunk; });
   server.stderr.on("data", (chunk) => { output += chunk; });

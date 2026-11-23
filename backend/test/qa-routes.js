@@ -90,11 +90,15 @@ function startServer(qaOwnerEmails) {
   if (qaOwnerEmails === undefined) delete env.QA_OWNER_EMAILS;
   else env.QA_OWNER_EMAILS = qaOwnerEmails;
 
-  const child = spawn(process.execPath, [path.join(__dirname, "..", "server.js")], {
-    cwd: directory,
-    env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const child = spawn(
+    process.execPath,
+    [path.join(__dirname, "sqlite-server.js")],
+    {
+      cwd: directory,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   child.stdout.on("data", (chunk) => { output += chunk; });
   child.stderr.on("data", (chunk) => { output += chunk; });
   return child;
