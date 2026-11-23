@@ -212,18 +212,19 @@ test("PostgreSQL schema harness rejects private, public and malformed unpinned a
 });
 
 test("PostgreSQL schema identity errors identify only the mismatched address", () => {
+  const invalidServerAddress = "172.18.0.2/32";
   assert.throws(
     () =>
       assertTargetIdentity(
         {
           database_name: "sms_test",
           user_name: "sms_test",
-          server_address: "172.18.0.2",
+          server_address: invalidServerAddress,
           server_port: 5432,
         },
         validEnvironment,
       ),
-    /server address \(172\.18\.0\.2\)/,
+    /server address \(invalid \("172\.18\.0\.2\/32"\)\)/,
   );
   assert.throws(
     () =>

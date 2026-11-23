@@ -50,7 +50,9 @@ function assertTargetIdentity(row, environment) {
         ? "null"
         : typeof row.server_address === "string" && net.isIP(row.server_address)
           ? row.server_address
-          : `invalid (${typeof row.server_address})`;
+          : typeof row.server_address === "string"
+            ? `invalid (${JSON.stringify(row.server_address.slice(0, 80))})`
+            : `invalid (${typeof row.server_address})`;
     mismatches.push(`server address (${address})`);
   }
   if (mismatches.length) {
