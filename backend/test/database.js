@@ -33,7 +33,7 @@ function parameters(count) {
   return Array.from({ length: count }, (_, index) => parameter(index + 1)).join(", ");
 }
 
-async function run(testDatabase) {
+async function run({ db: testDatabase }) {
   db = testDatabase;
   assert.equal(toCents(0.1), 10);
   assert.equal(toCents(0.3), 30);
