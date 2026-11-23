@@ -1,35 +1,55 @@
-const assert = require("assert");
-const fs = require("fs");
-const os = require("os");
-const path = require("path");
+"use strict";
 
-const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sms-fresh-migration-test-"));
-process.env.DATABASE_URL = "";
-process.env.SQLITE_PATH = path.join(directory, "fresh.sqlite");
+const assert = require("node:assert/strict");
+const {
+  EXPECTED_MIGRATION_VERSIONS,
+  assertMigrationFiles,
+} = require("./migration-versions");
+const { withPostgresTestSchema } = require("./postgres-test-schema");
 
-const db = require("../utils/db");
+assertMigrationFiles();
 
-async function run() {
-  const versions = await db.migrate();
-  assert.deepEqual(versions, ["001", "002", "003", "004", "005", "006", "007", "008"]);
+async function run({ db }) {
+  const concurrentVersions = await Promise.all([db.migrate(), db.migrate()]);
+  const versions = concurrentVersions[0];
+  assert.deepEqual(
+    concurrentVersions[1],
+    versions,
+    "concurrent migration callers must both observe a successful, complete upgrade",
+  );
+  assert.deepEqual(versions, EXPECTED_MIGRATION_VERSIONS);
   assert.deepEqual(await db.migrate(), versions);
 
-  const legacyStore = await db.all(
-    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'store'",
-  );
-  assert.equal(legacyStore.length, 0);
   assert.equal(
-    (await db.all("PRAGMA foreign_key_check")).length,
-    0,
-    "fresh schema must have no foreign-key violations",
+    (await db.all("SELECT to_regclass('store') AS name"))[0]?.name ?? null,
+    null,
   );
-  assert.equal((await db.all("PRAGMA foreign_keys"))[0].foreign_keys, 1);
+  assert.equal(
+    Number(
+      (
+        await db.all(
+          "SELECT COUNT(*) AS count FROM pg_constraint WHERE contype = 'f' AND NOT convalidated",
+        )
+      )[0].count,
+    ),
+    0,
+    "fresh schema must have no unvalidated foreign keys",
+  );
   assert.ok(
-    (await db.all(
-      "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_students_school_name'",
-    )).length > 0,
+    (await db.all("SELECT to_regclass('idx_students_school_name') AS name"))[0]
+      ?.name,
     "fresh schema must include relational query indexes",
   );
+  assert.ok(
+    (await db.all("SELECT to_regclass('pending_email_changes') AS name"))[0]
+      ?.name,
+    "migration 019 must add the pending email-change table",
+  );
+
+  const trigger = await db.all(
+    "SELECT 1 FROM pg_trigger WHERE tgname = 'validate_school_membership_role' AND NOT tgisinternal",
+  );
+  assert.equal(trigger.length, 1, "migration 017 must install the membership role trigger");
 
   const now = new Date().toISOString();
   await db.insert("schools", {
@@ -54,6 +74,24 @@ async function run() {
     /FOREIGN KEY|foreign key/i,
   );
   await assert.rejects(
+    db.execute(
+      `INSERT INTO school_memberships
+         (id, user_id, school_id, role_code, status, is_active, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        "invalid-membership-role",
+        "missing-user",
+        "fresh-school",
+        "super_admin",
+        "active",
+        true,
+        now,
+        now,
+      ],
+    ),
+    /invalid school membership role/i,
+  );
+  await assert.rejects(
     db.transaction(async () => {
       await db.insert("events", {
         id: "rolled-back-event",
@@ -68,15 +106,10 @@ async function run() {
   );
   assert.equal(await db.findById("events", "rolled-back-event"), null);
   assert.equal((await db.findById("students", "fresh-student")).name, "Fresh Student");
-  console.log("Fresh relational migration tests passed");
+  console.log("Fresh PostgreSQL migration tests passed");
 }
 
-run()
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await db.close();
-    fs.rmSync(directory, { recursive: true, force: true });
-  });
+withPostgresTestSchema(run).catch((error) => {
+  console.error(error.message);
+  process.exitCode = 1;
+});

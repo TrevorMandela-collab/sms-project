@@ -19,6 +19,7 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
+      - run: npm run test:sqlite-migrations
       - run: npm test
 
   postgres:
@@ -48,8 +49,50 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
-      - run: npm run test:postgres
+      - name: Pin PostgreSQL service address
         env:
+          POSTGRES_SERVICE_ID: ${{ job.services.postgres.id }}
+        run: |
+          set -o pipefail
+          docker inspect --format '{{json .NetworkSettings.Networks}}' "$POSTGRES_SERVICE_ID" |
+            node -e '
+              let input = "";
+              process.stdin.setEncoding("utf8");
+              process.stdin.on("data", (chunk) => { input += chunk; });
+              process.stdin.on("end", () => {
+                let networks;
+                try {
+                  networks = JSON.parse(input);
+                } catch {
+                  console.error("Could not read the PostgreSQL service network identity.");
+                  process.exitCode = 1;
+                  return;
+                }
+                const addresses = [...new Set(
+                  Object.values(networks).flatMap((network) => [
+                    network.IPAddress,
+                    network.GlobalIPv6Address,
+                  ]).filter(Boolean),
+                )].sort();
+                if (addresses.length === 0) {
+                  console.error("The PostgreSQL service has no inspectable network address.");
+                  process.exitCode = 1;
+                  return;
+                }
+                process.stdout.write(
+                  `POSTGRES_TEST_EXPECTED_SERVER_ADDRESSES=${JSON.stringify(addresses)}\n`,
+                );
+              });
+            ' >> "$GITHUB_ENV"
+      - run: npm run test:postgres-migrations
+        env:
+          REQUIRE_POSTGRES_TESTS: "1"
+          POSTGRES_TEST_OPT_IN: "1"
+          POSTGRES_TEST_DISPOSABLE: "1"
+          POSTGRES_TEST_EXPECTED_DATABASE: sms_test
+          POSTGRES_TEST_EXPECTED_HOST: localhost
+          POSTGRES_TEST_EXPECTED_PORT: "5432"
+          POSTGRES_TEST_EXPECTED_USER: sms_test
           TEST_DATABASE_URL: postgresql://sms_test:sms_test_password@localhost:5432/sms_test
 
   notify:

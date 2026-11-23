@@ -2,19 +2,36 @@ const fs = require("fs");
 const path = require("path");
 const { AsyncLocalStorage } = require("async_hooks");
 const { toCents } = require("./money");
-const Database = require("better-sqlite3");
 const { Pool } = require("pg");
 const legacyMigration = require("../migrations/002_import_legacy_store");
+const { logSafeError } = require("./safeDiagnostics");
 
 const BOOTSTRAP_LOCK_NAMESPACE = 0x534D5301;
 const BOOTSTRAP_LOCK_ID = 1;
-const usePostgres = Boolean(process.env.DATABASE_URL);
+const MIGRATION_LOCK_ID = 2;
+if (!process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL must be set to a PostgreSQL database.");
+}
+let databaseConnection;
+try {
+  databaseConnection = new URL(process.env.DATABASE_URL);
+} catch {
+  throw new Error("DATABASE_URL must be a valid PostgreSQL connection URL.");
+}
+if (!["postgres:", "postgresql:"].includes(databaseConnection.protocol)) {
+  throw new Error("DATABASE_URL must use the PostgreSQL protocol.");
+}
+if (
+  !databaseConnection.hostname ||
+  !databaseConnection.pathname ||
+  databaseConnection.pathname === "/" ||
+  !databaseConnection.username
+) {
+  throw new Error("DATABASE_URL must include a host, database, and username.");
+}
 const transactionStorage = new AsyncLocalStorage();
 let pool = null;
-let sqlite = null;
 let schemaReady = null;
-let sqliteLock = Promise.resolve();
-let activeSqliteLock = null;
 
 function integerSetting(name, fallback, minimum, maximum) {
   const value = process.env[name] === undefined ? fallback : Number(process.env[name]);
@@ -25,89 +42,45 @@ function integerSetting(name, fallback, minimum, maximum) {
 }
 
 function logDatabaseError(operation, error) {
-  const detail = error?.code || error?.name || "unknown database error";
-  console.error(`[db] ${operation} failed (${detail}).`);
+  const migrationMatch = /^migration (\d{1,4})$/.exec(operation);
+  const context = migrationMatch
+    ? {
+        resource: "migrations",
+        operation: "migration",
+        migrationVersion: migrationMatch[1],
+      }
+    : {
+        resource: "database",
+        operation:
+          operation === "idle PostgreSQL client"
+            ? "postgres_idle_client"
+            : operation.includes("transaction rollback")
+              ? "transaction_rollback"
+              : "database_operation",
+      };
+  logSafeError(
+    migrationMatch ? "database.migration_failed" : "database.operation_failed",
+    error,
+    context,
+  );
 }
 
-if (usePostgres) {
-  pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    max: integerSetting("PG_POOL_MAX", 10, 1, 100),
-    idleTimeoutMillis: integerSetting("PG_IDLE_TIMEOUT_MS", 30000, 1000, 300000),
-    connectionTimeoutMillis: integerSetting(
-      "PG_CONNECTION_TIMEOUT_MS",
-      5000,
-      100,
-      120000,
-    ),
-  });
-  pool.on("error", (error) => logDatabaseError("idle PostgreSQL client", error));
-} else {
-  const sqlitePath =
-    process.env.SQLITE_PATH || path.join(__dirname, "..", "data", "sms.sqlite");
-  fs.mkdirSync(path.dirname(sqlitePath), { recursive: true });
-  sqlite = new Database(sqlitePath, {
-    timeout: integerSetting("SQLITE_BUSY_TIMEOUT_MS", 5000, 0, 120000),
-  });
-  sqlite.pragma("foreign_keys = ON");
-  sqlite.pragma(`busy_timeout = ${integerSetting("SQLITE_BUSY_TIMEOUT_MS", 5000, 0, 120000)}`);
-  console.warn(`[db] DATABASE_URL is not set; using SQLite at ${sqlitePath}`);
-}
-
-async function acquireSqliteLock() {
-  let release;
-  const previous = sqliteLock;
-  sqliteLock = new Promise((resolve) => {
-    release = resolve;
-  });
-  await previous;
-
-  let finish;
-  const lock = {
-    done: new Promise((resolve) => {
-      finish = resolve;
-    }),
-    finish: null,
-    release: null,
-  };
-  lock.finish = finish;
-  lock.release = release;
-  activeSqliteLock = lock;
-  return lock;
-}
-
-function releaseSqliteLock(lock) {
-  if (activeSqliteLock === lock) activeSqliteLock = null;
-  lock.finish();
-  lock.release();
-}
-
-async function withSqliteAccess(operation) {
-  const current = transactionStorage.getStore();
-  if (current?.sqliteLock === activeSqliteLock) return operation();
-
-  const lock = await acquireSqliteLock();
-  try {
-    return operation();
-  } finally {
-    releaseSqliteLock(lock);
-  }
-}
+pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: integerSetting("PG_POOL_MAX", 10, 1, 100),
+  idleTimeoutMillis: integerSetting("PG_IDLE_TIMEOUT_MS", 30000, 1000, 300000),
+  connectionTimeoutMillis: integerSetting(
+    "PG_CONNECTION_TIMEOUT_MS",
+    5000,
+    100,
+    120000,
+  ),
+});
+pool.on("error", (error) => logDatabaseError("idle PostgreSQL client", error));
 
 function queryPostgres(sql, values = []) {
   const current = transactionStorage.getStore();
   return (current?.client || pool).query(sql, values);
-}
-
-function normalizePostgresPlaceholders(sql) {
-  if (!usePostgres || !sql.includes("?")) return sql;
-  let index = 0;
-  return sql.replace(/\?/g, () => `$${++index}`);
-}
-
-function querySqlite(method, sql, values = []) {
-  const execute = () => sqlite.prepare(sql)[method](...values);
-  return withSqliteAccess(execute);
 }
 
 function mappingFor(collection) {
@@ -161,6 +134,7 @@ function recordFromRow(collection, row) {
     record.timestamp = record.createdAt;
   }
   if (collection === "password-resets") record.used = Boolean(row.used_at);
+  if (collection === "invite-codes") record.used = Boolean(row.used_at);
   return record;
 }
 
@@ -179,34 +153,30 @@ function activeRecordClause(collection, prefix = "") {
 
 function insertSql(table, values) {
   const columns = Object.keys(values);
-  const placeholders = columns.map((_, index) =>
-    usePostgres ? `$${index + 1}` : "?",
-  );
+  const placeholders = columns.map((_, index) => `$${index + 1}`);
   return `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders.join(", ")})`;
 }
 
 function encodeRelationalRecord(collection, record) {
-  const values = legacyMigration.mapRecord(
-    collection,
-    record,
-    usePostgres ? "postgres" : "sqlite",
-  );
+  const values = legacyMigration.mapRecord(collection, record, "postgres");
+  if (
+    collection === "chat-messages" &&
+    record.deleted === true &&
+    record.text === ""
+  ) {
+    values.body = "";
+  }
   if (collection === "fees") {
-    values.issued_at =
-      values.issued_at ||
-      (usePostgres
-        ? record.createdAt || new Date().toISOString()
-        : record.createdAt || new Date().toISOString());
+    values.issued_at = values.issued_at ||
+      record.createdAt || new Date().toISOString();
   }
   return values;
 }
 
 async function insertRelations(collection, record) {
   const stamp = record.createdAt || new Date().toISOString();
-  const run = async (sql, values) => queryPostgres(sql, values);
-  const runSqlite = async (sql, values) => querySqlite("run", sql, values);
-  const execute = usePostgres ? run : runSqlite;
-  const placeholder = (index) => usePostgres ? `$${index}` : "?";
+  const execute = async (sql, values) => queryPostgres(sql, values);
+  const placeholder = (index) => `$${index}`;
 
   if (collection === "users") {
     await execute(
@@ -223,7 +193,7 @@ async function insertRelations(collection, record) {
         phone: record.phone || null,
         created_at: stamp,
         updated_at: record.updatedAt || stamp,
-        extra_data: usePostgres ? {} : "{}",
+        extra_data: {},
       };
       await execute(insertSql("guardians", guardian), Object.values(guardian));
       for (const studentId of new Set(Array.isArray(record.childIds) ? record.childIds : [])) {
@@ -271,11 +241,8 @@ async function insertRelations(collection, record) {
 }
 
 async function synchronizeRelations(collection, record, previous) {
-  const execute = (sql, values) =>
-    usePostgres
-      ? queryPostgres(sql, values)
-      : querySqlite("run", sql, values);
-  const placeholder = (index) => usePostgres ? `$${index}` : "?";
+  const execute = (sql, values) => queryPostgres(sql, values);
+  const placeholder = (index) => `$${index}`;
 
   if (collection === "users" && record.role !== previous.role) {
     await execute(
@@ -303,11 +270,11 @@ async function synchronizeRelations(collection, record, previous) {
       phone: record.phone || null,
       created_at: record.createdAt,
       updated_at: record.updatedAt || record.createdAt,
-      extra_data: usePostgres ? {} : "{}",
+      extra_data: {},
     };
-    const existingGuardian = usePostgres
-      ? (await queryPostgres("SELECT id FROM guardians WHERE id = $1", [guardianId])).rows[0]
-      : await querySqlite("get", "SELECT id FROM guardians WHERE id = ?", [guardianId]);
+    const existingGuardian = (
+      await queryPostgres("SELECT id FROM guardians WHERE id = $1", [guardianId])
+    ).rows[0];
     if (existingGuardian) {
       await execute(
         `UPDATE guardians SET name = ${placeholder(1)}, email = ${placeholder(2)}, phone = ${placeholder(3)}, updated_at = ${placeholder(4)} WHERE id = ${placeholder(5)}`,
@@ -375,22 +342,12 @@ async function synchronizeRelations(collection, record, previous) {
 async function ensureSchema() {
   if (!schemaReady) {
     schemaReady = (async () => {
-      if (usePostgres) {
-        await queryPostgres(`
-          CREATE TABLE IF NOT EXISTS schema_migrations (
-            version TEXT PRIMARY KEY,
-            applied_at TIMESTAMPTZ NOT NULL
-          );
-        `);
-      } else {
-        await querySqlite(
-          "run",
-          `CREATE TABLE IF NOT EXISTS schema_migrations (
-            version TEXT PRIMARY KEY,
-            applied_at TEXT NOT NULL
-          )`,
+      await queryPostgres(`
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+          version TEXT PRIMARY KEY,
+          applied_at TIMESTAMPTZ NOT NULL
         );
-      }
+      `);
     })().catch((error) => {
       schemaReady = null;
       throw error;
@@ -408,28 +365,15 @@ async function transaction(work) {
   const current = transactionStorage.getStore();
   if (current) {
     const savepoint = `nested_${++current.savepointCount}`;
-    if (usePostgres) {
-      await current.client.query(`SAVEPOINT ${savepoint}`);
-    } else {
-      sqlite.exec(`SAVEPOINT ${savepoint}`);
-    }
+    await current.client.query(`SAVEPOINT ${savepoint}`);
     try {
       const result = await work();
-      if (usePostgres) {
-        await current.client.query(`RELEASE SAVEPOINT ${savepoint}`);
-      } else {
-        sqlite.exec(`RELEASE SAVEPOINT ${savepoint}`);
-      }
+      await current.client.query(`RELEASE SAVEPOINT ${savepoint}`);
       return result;
     } catch (error) {
       try {
-        if (usePostgres) {
-          await current.client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
-          await current.client.query(`RELEASE SAVEPOINT ${savepoint}`);
-        } else {
-          sqlite.exec(`ROLLBACK TO SAVEPOINT ${savepoint}`);
-          sqlite.exec(`RELEASE SAVEPOINT ${savepoint}`);
-        }
+        await current.client.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+        await current.client.query(`RELEASE SAVEPOINT ${savepoint}`);
       } catch (rollbackError) {
         logDatabaseError("nested transaction rollback", rollbackError);
       }
@@ -437,45 +381,19 @@ async function transaction(work) {
     }
   }
 
-  if (usePostgres) {
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      return await transactionStorage.run(
-        { client, savepointCount: 0 },
-        async () => {
-          try {
-            const result = await work();
-            await client.query("COMMIT");
-            return result;
-          } catch (error) {
-            try {
-              await client.query("ROLLBACK");
-            } catch (rollbackError) {
-              logDatabaseError("transaction rollback", rollbackError);
-            }
-            throw error;
-          }
-        },
-      );
-    } finally {
-      client.release();
-    }
-  }
-
-  const lock = await acquireSqliteLock();
+  const client = await pool.connect();
   try {
-    sqlite.exec("BEGIN IMMEDIATE");
+    await client.query("BEGIN");
     return await transactionStorage.run(
-      { sqliteLock: lock, savepointCount: 0 },
+      { client, savepointCount: 0 },
       async () => {
         try {
           const result = await work();
-          sqlite.exec("COMMIT");
+          await client.query("COMMIT");
           return result;
         } catch (error) {
           try {
-            sqlite.exec("ROLLBACK");
+            await client.query("ROLLBACK");
           } catch (rollbackError) {
             logDatabaseError("transaction rollback", rollbackError);
           }
@@ -484,7 +402,7 @@ async function transaction(work) {
       },
     );
   } finally {
-    releaseSqliteLock(lock);
+    client.release();
   }
 }
 
@@ -493,30 +411,23 @@ async function withBootstrapLock(work) {
     throw new TypeError("withBootstrapLock requires a callback.");
   }
   return transaction(async () => {
-    // BEGIN IMMEDIATE serializes SQLite writers; Postgres needs a shared transaction lock.
-    if (usePostgres) {
-      await queryPostgres("SELECT pg_advisory_xact_lock($1, $2)", [
-        BOOTSTRAP_LOCK_NAMESPACE,
-        BOOTSTRAP_LOCK_ID,
-      ]);
-    }
+    await queryPostgres("SELECT pg_advisory_xact_lock($1, $2)", [
+      BOOTSTRAP_LOCK_NAMESPACE,
+      BOOTSTRAP_LOCK_ID,
+    ]);
     return work();
   });
 }
 
 async function execute(sql, values = []) {
   await ensureSchema();
-  if (usePostgres) return queryPostgres(normalizePostgresPlaceholders(sql), values);
-  return querySqlite("run", sql, values);
+  return queryPostgres(sql, values);
 }
 
 async function all(sql, values = []) {
   await ensureSchema();
-  if (usePostgres) {
-    const result = await queryPostgres(normalizePostgresPlaceholders(sql), values);
-    return result.rows;
-  }
-  return querySqlite("all", sql, values);
+  const result = await queryPostgres(sql, values);
+  return result.rows;
 }
 
 async function migrate() {
@@ -550,31 +461,31 @@ async function migrate() {
     if (typeof migration.up !== "function") {
       throw new Error(`Migration ${version} does not export an up function.`);
     }
+    let skipped = false;
     try {
       await transaction(async () => {
-        await migration.up({
-          execute,
-          all,
-          transaction,
-          dialect: usePostgres ? "postgres" : "sqlite",
-        });
-        const appliedAt = new Date().toISOString();
-        if (usePostgres) {
-          await execute(
-            "INSERT INTO schema_migrations (version, applied_at) VALUES ($1, $2)",
-            [version, appliedAt],
-          );
-        } else {
-          await execute(
-            "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-            [version, appliedAt],
-          );
+        await queryPostgres("SELECT pg_advisory_xact_lock($1, $2)", [
+          BOOTSTRAP_LOCK_NAMESPACE,
+          MIGRATION_LOCK_ID,
+        ]);
+        const appliedInsideTransaction = await all(
+          "SELECT version FROM schema_migrations WHERE version = $1",
+          [version],
+        );
+        if (appliedInsideTransaction.length) {
+          skipped = true;
+          return;
         }
+        await migration.up({ execute, all, transaction, dialect: "postgres" });
+        const appliedAt = new Date().toISOString();
+        await execute(
+          "INSERT INTO schema_migrations (version, applied_at) VALUES ($1, $2)",
+          [version, appliedAt],
+        );
       });
-      console.log(`[db] Applied migration ${version}.`);
+      if (!skipped) console.log(`[db] Applied migration ${version}.`);
     } catch (error) {
       logDatabaseError(`migration ${version}`, error);
-      console.error(`[db] Migration ${version} details: ${error.message}`);
       throw new Error(`Database migration ${version} failed; no migration data was committed.`);
     }
   }
@@ -593,9 +504,7 @@ async function readAll(collection) {
     collection === "library-loans"
       ? `SELECT library_loans.*, library_copies.book_id AS legacy_book_id, library_books.title AS legacy_book_title FROM library_loans JOIN library_copies ON library_copies.id = library_loans.copy_id JOIN library_books ON library_books.id = library_copies.book_id WHERE 1 = 1${activeRecordClause(collection, "library_loans.")}`
       : `SELECT * FROM ${mapping.table} WHERE 1 = 1${activeRecordClause(collection)}`;
-  const rows = usePostgres
-    ? (await queryPostgres(select)).rows
-    : await querySqlite("all", select);
+  const rows = (await queryPostgres(select)).rows;
   return rows.map((row) => recordFromRow(collection, row));
 }
 
@@ -610,10 +519,7 @@ async function readBySchool(collection, schoolId) {
     collection === "library-loans"
       ? `SELECT library_loans.*, library_copies.book_id AS legacy_book_id, library_books.title AS legacy_book_title FROM library_loans JOIN library_copies ON library_copies.id = library_loans.copy_id JOIN library_books ON library_books.id = library_copies.book_id WHERE library_loans.school_id = $1${activeRecordClause(collection, prefix)}`
       : `SELECT * FROM ${mapping.table} WHERE school_id = $1${activeRecordClause(collection)}`;
-  const sqliteSelect = select.replace("$1", "?");
-  const rows = usePostgres
-    ? (await queryPostgres(select, [schoolId])).rows
-    : await querySqlite("all", sqliteSelect, [schoolId]);
+  const rows = (await queryPostgres(select, [schoolId])).rows;
   return rows.map((row) => recordFromRow(collection, row));
 }
 
@@ -629,22 +535,17 @@ async function findByIds(collection, ids, schoolId) {
     throw new RangeError("At most 900 IDs can be queried at once.");
   }
   const values = [...uniqueIds];
-  const placeholders = uniqueIds.map((_, index) =>
-    usePostgres ? `$${index + 1}` : "?",
-  );
+  const placeholders = uniqueIds.map((_, index) => `$${index + 1}`);
   const where = [`id IN (${placeholders.join(", ")})`];
   if (schoolId !== undefined && mapping.fields.schoolId) {
     values.push(schoolId);
-    where.push(`school_id = ${usePostgres ? `$${values.length}` : "?"}`);
+    where.push(`school_id = $${values.length}`);
   }
   const activeClause = activeRecordClause(collection);
   const whereSql = `WHERE ${where.join(" AND ")}${activeClause}`;
-  const rows = usePostgres
-    ? (await queryPostgres(
-        `SELECT * FROM ${mapping.table} ${whereSql}`,
-        values,
-      )).rows
-    : await querySqlite("all", `SELECT * FROM ${mapping.table} ${whereSql}`, values);
+  const rows = (
+    await queryPostgres(`SELECT * FROM ${mapping.table} ${whereSql}`, values)
+  ).rows;
   return rows.map((row) => recordFromRow(collection, row));
 }
 
@@ -656,59 +557,42 @@ async function count(collection) {
   }
   const activeClause = activeRecordClause(collection);
   const whereSql = activeClause ? ` WHERE 1 = 1${activeClause}` : "";
-  const result = usePostgres
-    ? await queryPostgres(`SELECT COUNT(*) AS total FROM ${mapping.table}${whereSql}`)
-    : await querySqlite("get", `SELECT COUNT(*) AS total FROM ${mapping.table}${whereSql}`);
-  return Number(usePostgres ? result.rows[0].total : result.total);
+  const result = await queryPostgres(
+    `SELECT COUNT(*) AS total FROM ${mapping.table}${whereSql}`,
+  );
+  return Number(result.rows[0].total);
 }
 
 async function findUserByEmail(email, { includeDeleted = false } = {}) {
   await ensureSchema();
   const deletedClause = includeDeleted ? "" : " AND deleted_at IS NULL";
-  const rows = usePostgres
-    ? (await queryPostgres(
-        `SELECT * FROM users WHERE lower(email) = lower($1)${deletedClause} LIMIT 1`,
-        [email],
-      )).rows
-    : [
-        await querySqlite(
-          "get",
-          `SELECT * FROM users WHERE lower(email) = lower(?)${deletedClause} LIMIT 1`,
-          [email],
-        ),
-      ].filter(Boolean);
+  const rows = (
+    await queryPostgres(
+      `SELECT * FROM users WHERE lower(email) = lower($1)${deletedClause} LIMIT 1`,
+      [email],
+    )
+  ).rows;
   return recordFromRow("users", rows[0]);
 }
 
 async function findInviteByCode(code) {
   await ensureSchema();
-  const rows = usePostgres
-    ? (await queryPostgres(
-        "SELECT * FROM invite_codes WHERE upper(code) = upper($1) LIMIT 1",
-        [code],
-      )).rows
-    : [
-        await querySqlite(
-          "get",
-          "SELECT * FROM invite_codes WHERE upper(code) = upper(?) LIMIT 1",
-          [code],
-        ),
-      ].filter(Boolean);
+  const rows = (
+    await queryPostgres(
+      "SELECT * FROM invite_codes WHERE upper(code) = upper($1) LIMIT 1",
+      [code],
+    )
+  ).rows;
   return recordFromRow("invite-codes", rows[0]);
 }
 
 async function claimInvite(id, userId, claimedAt = new Date().toISOString()) {
   await ensureSchema();
-  const sql = usePostgres
-    ? "UPDATE invite_codes SET used_at = $1, used_by_user_id = $2, updated_at = $1 WHERE id = $3 AND used_at IS NULL AND (expires_at IS NULL OR expires_at > $1)"
-    : "UPDATE invite_codes SET used_at = ?, used_by_user_id = ?, updated_at = ? WHERE id = ? AND used_at IS NULL AND (expires_at IS NULL OR expires_at > ?)";
-  const values = usePostgres
-    ? [claimedAt, userId, id]
-    : [claimedAt, userId, claimedAt, id, claimedAt];
-  const result = usePostgres
-    ? await queryPostgres(sql, values)
-    : await querySqlite("run", sql, values);
-  return (usePostgres ? result.rowCount : result.changes) === 1;
+  const result = await queryPostgres(
+    "UPDATE invite_codes SET used_at = $1, used_by_user_id = $2, updated_at = $1 WHERE id = $3 AND used_at IS NULL AND (expires_at IS NULL OR expires_at > $1)",
+    [claimedAt, userId, id],
+  );
+  return result.rowCount === 1;
 }
 
 async function insertPlatformAuditEvent(record) {
@@ -725,37 +609,26 @@ async function insertPlatformAuditEvent(record) {
     record.ipAddress || null,
     record.userAgent || null,
   ];
-  const placeholders = values.map((_, index) =>
-    usePostgres ? `$${index + 1}` : "?",
-  );
+  const placeholders = values.map((_, index) => `$${index + 1}`);
   const sql = `INSERT INTO platform_audit_logs
     (id, actor_user_id, school_id, action, entity_type, entity_id, timestamp, metadata, ip_address, user_agent)
     VALUES (${placeholders.join(", ")})`;
-  if (usePostgres) await queryPostgres(sql, values);
-  else await querySqlite("run", sql, values);
+  await queryPostgres(sql, values);
   return record;
 }
 
 async function listPlatformAuditLogs({ page = 1, limit = 25 } = {}) {
   await ensureSchema();
-  const countResult = usePostgres
-    ? await queryPostgres("SELECT COUNT(*) AS total FROM platform_audit_logs")
-    : await querySqlite("get", "SELECT COUNT(*) AS total FROM platform_audit_logs");
-  const total = Number(usePostgres ? countResult.rows[0].total : countResult.total);
-  const limitPlaceholder = usePostgres ? "$1" : "?";
-  const offsetPlaceholder = usePostgres ? "$2" : "?";
-  const rows = usePostgres
-    ? (
-        await queryPostgres(
-          `SELECT id, actor_user_id AS "actorUserId", school_id AS "schoolId", action, entity_type AS "entityType", entity_id AS "entityId", timestamp, metadata, ip_address AS "ipAddress", user_agent AS "userAgent" FROM platform_audit_logs ORDER BY timestamp DESC, id ASC LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder}`,
-          [limit, (page - 1) * limit],
-        )
-      ).rows
-    : await querySqlite(
-        "all",
-        `SELECT id, actor_user_id AS actorUserId, school_id AS schoolId, action, entity_type AS entityType, entity_id AS entityId, timestamp, metadata, ip_address AS ipAddress, user_agent AS userAgent FROM platform_audit_logs ORDER BY timestamp DESC, id ASC LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder}`,
-        [limit, (page - 1) * limit],
-      );
+  const countResult = await queryPostgres(
+    "SELECT COUNT(*) AS total FROM platform_audit_logs",
+  );
+  const total = Number(countResult.rows[0].total);
+  const rows = (
+    await queryPostgres(
+      `SELECT id, actor_user_id AS "actorUserId", school_id AS "schoolId", action, entity_type AS "entityType", entity_id AS "entityId", timestamp, metadata, ip_address AS "ipAddress", user_agent AS "userAgent" FROM platform_audit_logs ORDER BY timestamp DESC, id ASC LIMIT $1 OFFSET $2`,
+      [limit, (page - 1) * limit],
+    )
+  ).rows;
   return {
     data: rows.map((row) => ({ ...row, metadata: decodeJson(row.metadata) })),
     meta: {
@@ -767,53 +640,66 @@ async function listPlatformAuditLogs({ page = 1, limit = 25 } = {}) {
   };
 }
 
-async function findChatByInviteCode(schoolId, code) {
-  await ensureSchema();
-  const rows = usePostgres
-    ? (await queryPostgres(
-        "SELECT * FROM chats WHERE school_id = $1 AND upper(invite_code) = upper($2) LIMIT 1",
-        [schoolId, code],
-      )).rows
-    : [
-        await querySqlite(
-          "get",
-          "SELECT * FROM chats WHERE school_id = ? AND upper(invite_code) = upper(?) LIMIT 1",
-          [schoolId, code],
-        ),
-      ].filter(Boolean);
-  return recordFromRow("chats", rows[0]);
-}
-
 async function readByChatId(chatId) {
   await ensureSchema();
-  const rows = usePostgres
-    ? (await queryPostgres(
-        "SELECT * FROM chat_messages WHERE chat_id = $1 ORDER BY created_at ASC, id ASC",
-        [chatId],
-      )).rows
-    : await querySqlite(
-        "all",
-        "SELECT * FROM chat_messages WHERE chat_id = ? ORDER BY created_at ASC, id ASC",
-        [chatId],
-      );
+  const rows = (
+    await queryPostgres(
+      "SELECT * FROM chat_messages WHERE chat_id = $1 ORDER BY created_at ASC, id ASC",
+      [chatId],
+    )
+  ).rows;
   return rows.map((row) => recordFromRow("chat-messages", row));
+}
+
+async function readChatPageByChatId(
+  chatId,
+  { limit, beforeCreatedAt, beforeId } = {},
+) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 101) {
+    throw new TypeError("Chat message page limit must be between 1 and 101.");
+  }
+  const hasCursor = beforeCreatedAt !== undefined || beforeId !== undefined;
+  if (
+    hasCursor &&
+    (typeof beforeCreatedAt !== "string" ||
+      !beforeCreatedAt ||
+      typeof beforeId !== "string" ||
+      !beforeId)
+  ) {
+    throw new TypeError("Both chat message cursor fields are required.");
+  }
+
+  await ensureSchema();
+  const values = hasCursor
+    ? [chatId, beforeCreatedAt, beforeId, limit]
+    : [chatId, limit];
+  const rows = (
+    await queryPostgres(
+      hasCursor
+        ? `SELECT * FROM chat_messages
+           WHERE chat_id = $1
+             AND (created_at < $2 OR (created_at = $2 AND id < $3))
+           ORDER BY created_at DESC, id DESC
+           LIMIT $4`
+        : `SELECT * FROM chat_messages
+           WHERE chat_id = $1
+           ORDER BY created_at DESC, id DESC
+           LIMIT $2`,
+      values,
+    )
+  ).rows;
+  return rows
+    .reverse()
+    .map((row) => recordFromRow("chat-messages", row));
 }
 
 async function markPasswordResetsUsed(userId, usedAt) {
   await ensureSchema();
-  if (usePostgres) {
-    const result = await queryPostgres(
-      "UPDATE password_resets SET used_at = $1, updated_at = $1 WHERE user_id = $2 AND used_at IS NULL",
-      [usedAt, userId],
-    );
-    return result.rowCount;
-  }
-  const result = await querySqlite(
-    "run",
-    "UPDATE password_resets SET used_at = ?, updated_at = ? WHERE user_id = ? AND used_at IS NULL",
-    [usedAt, usedAt, userId],
+  const result = await queryPostgres(
+    "UPDATE password_resets SET used_at = $1, updated_at = $1 WHERE user_id = $2 AND used_at IS NULL",
+    [usedAt, userId],
   );
-  return result.changes;
+  return result.rowCount;
 }
 
 async function createInvoiceWithItems(invoice, items) {
@@ -858,8 +744,7 @@ async function createInvoiceWithItems(invoice, items) {
         updated_at: item.updatedAt || item.createdAt || createdAt,
       };
       const sql = insertSql("invoice_items", values);
-      if (usePostgres) await queryPostgres(sql, Object.values(values));
-      else await querySqlite("run", sql, Object.values(values));
+      await queryPostgres(sql, Object.values(values));
     }
     return { ...normalizedInvoice, items };
   });
@@ -901,23 +786,21 @@ async function recordPaymentWithAllocations(payment, allocations) {
   }
 
   return transaction(async () => {
-    const placeholder = (index) => usePostgres ? `$${index}` : "?";
+    const placeholder = (index) => `$${index}`;
     for (const allocation of [...allocations].sort((left, right) =>
       left.invoiceId.localeCompare(right.invoiceId),
     )) {
       const values = [allocation.invoiceId, payment.schoolId, payment.studentId];
-      const lock = usePostgres ? " FOR UPDATE" : "";
-      const sql = `SELECT id, amount FROM invoices WHERE id = ${placeholder(1)} AND school_id = ${placeholder(2)} AND student_id = ${placeholder(3)}${lock}`;
-      const invoice = usePostgres
-        ? (await queryPostgres(sql, values)).rows[0]
-        : await querySqlite("get", sql, values);
+      const lock = " FOR UPDATE";
+      const sql = `SELECT id, amount FROM invoices WHERE id = ${placeholder(1)} AND school_id = ${placeholder(2)} AND student_id = ${placeholder(3)} AND archived_at IS NULL${lock}`;
+      const invoice = (await queryPostgres(sql, values)).rows[0];
       if (!invoice) {
         throw new Error("Payment allocation invoice was not found for this student and school.");
       }
       const allocatedSql = `SELECT COALESCE(SUM(amount), 0) AS total FROM payment_allocations WHERE invoice_id = ${placeholder(1)}`;
-      const allocated = usePostgres
-        ? (await queryPostgres(allocatedSql, [allocation.invoiceId])).rows[0].total
-        : (await querySqlite("get", allocatedSql, [allocation.invoiceId])).total;
+      const allocated = (
+        await queryPostgres(allocatedSql, [allocation.invoiceId])
+      ).rows[0].total;
       const remainingCents = toCents(invoice.amount) - toCents(allocated);
       if (toCents(allocation.amount) > remainingCents) {
         const error = new Error("Payment allocation exceeds the invoice balance.");
@@ -937,13 +820,10 @@ async function recordPaymentWithAllocations(payment, allocations) {
       paid_at: payment.paidAt || new Date().toISOString(),
       created_at: payment.createdAt || new Date().toISOString(),
       updated_at: payment.updatedAt || payment.createdAt || new Date().toISOString(),
-      extra_data: usePostgres
-        ? payment.extraData || {}
-        : JSON.stringify(payment.extraData || {}),
+      extra_data: payment.extraData || {},
     };
     const insertPayment = insertSql("payments", values);
-    if (usePostgres) await queryPostgres(insertPayment, Object.values(values));
-    else await querySqlite("run", insertPayment, Object.values(values));
+    await queryPostgres(insertPayment, Object.values(values));
 
     const createdAt = payment.createdAt || new Date().toISOString();
     for (const allocation of allocations) {
@@ -955,11 +835,7 @@ async function recordPaymentWithAllocations(payment, allocations) {
         created_at: allocation.createdAt || createdAt,
       };
       const insertAllocation = insertSql("payment_allocations", allocationValues);
-      if (usePostgres) {
-        await queryPostgres(insertAllocation, Object.values(allocationValues));
-      } else {
-        await querySqlite("run", insertAllocation, Object.values(allocationValues));
-      }
+      await queryPostgres(insertAllocation, Object.values(allocationValues));
     }
     return {
       ...payment,
@@ -982,9 +858,7 @@ function columnExpression(collection, field) {
   const definition = mapping?.fields[field];
   if (definition) return Array.isArray(definition) ? definition[0] : definition;
   const jsonKey = field.replace(/'/g, "''");
-  return usePostgres
-  ? `extra_data ->> '${jsonKey}'`
-  : `json_extract(extra_data, '$.${jsonKey}')`;
+  return `extra_data ->> '${jsonKey}'`;
 }
 
 async function listPage(collection, {
@@ -1004,8 +878,8 @@ async function listPage(collection, {
   const values = [];
   const where = [];
   const addParameter = (value) => {
-  values.push(value);
-  return usePostgres ? `$${values.length}` : "?";
+    values.push(value);
+    return `$${values.length}`;
   };
 
   if (schoolId && collection !== "schools") {
@@ -1039,31 +913,24 @@ async function listPage(collection, {
   }
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-  const countResult = usePostgres
-  ? await queryPostgres(`SELECT COUNT(*) AS total FROM ${mapping.table} ${whereSql}`, values)
-  : await querySqlite("get", `SELECT COUNT(*) AS total FROM ${mapping.table} ${whereSql}`, values);
-  const total = Number(usePostgres ? countResult.rows[0].total : countResult.total);
+  const countResult = await queryPostgres(
+    `SELECT COUNT(*) AS total FROM ${mapping.table} ${whereSql}`,
+    values,
+  );
+  const total = Number(countResult.rows[0].total);
   const order = sortField
   ? columnExpression(collection, sortField)
   : "created_at";
   const orderDirection = descending ? "DESC" : "ASC";
   const pageValues = [...values, limit, (page - 1) * limit];
-  const limitPlaceholder = usePostgres
-    ? `$${pageValues.length - 1}`
-    : "?";
-  const offsetPlaceholder = usePostgres
-    ? `$${pageValues.length}`
-    : "?";
-  const rows = usePostgres
-  ? (await queryPostgres(
+  const limitPlaceholder = `$${pageValues.length - 1}`;
+  const offsetPlaceholder = `$${pageValues.length}`;
+  const rows = (
+    await queryPostgres(
       `SELECT * FROM ${mapping.table} ${whereSql} ORDER BY ${order} ${orderDirection}, id ASC LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder}`,
       pageValues,
-    )).rows
-  : await querySqlite(
-      "all",
-      `SELECT * FROM ${mapping.table} ${whereSql} ORDER BY ${order} ${orderDirection}, id ASC LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder}`,
-      pageValues,
-    );
+    )
+  ).rows;
   return {
   data: rows.map((row) => recordFromRow(collection, row)),
   meta: {
@@ -1081,15 +948,12 @@ async function findById(collection, id, { forUpdate = false } = {}) {
   if (!mapping) {
     throw new TypeError(`No relational mapping exists for ${collection}.`);
   }
-  const lockClause = usePostgres && forUpdate ? " FOR UPDATE" : "";
+  const lockClause = forUpdate ? " FOR UPDATE" : "";
   const select =
     collection === "library-loans"
       ? `SELECT library_loans.*, library_copies.book_id AS legacy_book_id, library_books.title AS legacy_book_title FROM library_loans JOIN library_copies ON library_copies.id = library_loans.copy_id JOIN library_books ON library_books.id = library_copies.book_id WHERE library_loans.id = $1 AND library_loans.archived_at IS NULL${lockClause}`
       : `SELECT * FROM ${mapping.table} WHERE id = $1${activeRecordClause(collection)}${lockClause}`;
-  const sqliteSelect = select.replace("$1", "?");
-  const rows = usePostgres
-    ? (await queryPostgres(select, [id])).rows
-    : [await querySqlite("get", sqliteSelect, [id])].filter(Boolean);
+  const rows = (await queryPostgres(select, [id])).rows;
   return recordFromRow(collection, rows[0]);
 }
 
@@ -1115,30 +979,27 @@ async function insert(collection, record) {
         created_at: values.created_at,
         updated_at: values.updated_at,
       };
-      await (usePostgres
-        ? queryPostgres(insertSql("library_copies", copy), Object.values(copy))
-        : querySqlite("run", insertSql("library_copies", copy), Object.values(copy)));
+      await queryPostgres(
+        insertSql("library_copies", copy),
+        Object.values(copy),
+      );
     }
-    await (usePostgres
-      ? queryPostgres(insertSql(mapping.table, values), Object.values(values))
-      : querySqlite("run", insertSql(mapping.table, values), Object.values(values)));
+    await queryPostgres(insertSql(mapping.table, values), Object.values(values));
     await insertRelations(collection, record);
     return record;
   });
 }
 
 async function changeAvailableCopies(bookId, schoolId, change) {
-  const placeholder = (index) => usePostgres ? `$${index}` : "?";
+  const placeholder = (index) => `$${index}`;
   const condition =
     change < 0 ? "copies_available > 0" : "copies_available < copies_total";
   const sql = `UPDATE library_books
     SET copies_available = copies_available + ${change}, updated_at = ${placeholder(1)}
     WHERE id = ${placeholder(2)} AND school_id = ${placeholder(3)} AND ${condition}`;
   const values = [new Date().toISOString(), bookId, schoolId];
-  const result = usePostgres
-    ? await queryPostgres(`${sql} RETURNING id`, values)
-    : await querySqlite("run", sql, values);
-  const changed = usePostgres ? result.rowCount : result.changes;
+  const result = await queryPostgres(`${sql} RETURNING id`, values);
+  const changed = result.rowCount;
   if (!changed) {
     const error = new Error(
       change < 0
@@ -1164,18 +1025,12 @@ async function update(collection, id, updates) {
     const bookId = values.book_id;
     delete values.book_id;
     if (collection === "library") {
-      const activeLoans = usePostgres
-        ? (await queryPostgres(
-            "SELECT COUNT(*) AS total FROM library_loans l JOIN library_copies c ON c.id = l.copy_id WHERE c.book_id = $1 AND l.returned_at IS NULL AND l.archived_at IS NULL",
-            [id],
-          )).rows[0].total
-        : (
-            await querySqlite(
-              "get",
-              "SELECT COUNT(*) AS total FROM library_loans l JOIN library_copies c ON c.id = l.copy_id WHERE c.book_id = ? AND l.returned_at IS NULL AND l.archived_at IS NULL",
-              [id],
-            )
-          ).total;
+      const activeLoans = (
+        await queryPostgres(
+          "SELECT COUNT(*) AS total FROM library_loans l JOIN library_copies c ON c.id = l.copy_id WHERE c.book_id = $1 AND l.returned_at IS NULL AND l.archived_at IS NULL",
+          [id],
+        )
+      ).rows[0].total;
       if (Number(updated.copiesTotal) < Number(activeLoans)) {
         const error = new Error("Total copies cannot be less than the number currently on loan.");
         error.statusCode = 409;
@@ -1185,6 +1040,7 @@ async function update(collection, id, updates) {
       if (updates.copiesTotal !== undefined) {
         updated.copiesAvailable =
           Number(updated.copiesTotal) - Number(activeLoans);
+        values.copies_available = updated.copiesAvailable;
       }
     }
     if (collection === "library-loans" && bookId && existing.itemId !== updated.itemId) {
@@ -1201,35 +1057,23 @@ async function update(collection, id, updates) {
     }
     const assignments = Object.keys(values)
       .filter((column) => column !== "id")
-      .map((column, index) => `${column} = ${usePostgres ? `$${index + 1}` : "?"}`);
+      .map((column, index) => `${column} = $${index + 1}`);
     const updateValues = Object.entries(values)
       .filter(([column]) => column !== "id")
       .map(([, value]) => value);
     updateValues.push(id);
-      await (usePostgres
-        ? queryPostgres(
-            `UPDATE ${mapping.table} SET ${assignments.join(", ")} WHERE id = $${updateValues.length}`,
-            updateValues,
-          )
-        : querySqlite(
-            "run",
-            `UPDATE ${mapping.table} SET ${assignments.join(", ")} WHERE id = ?`,
-            updateValues,
-          ));
+      await queryPostgres(
+        `UPDATE ${mapping.table} SET ${assignments.join(", ")} WHERE id = $${updateValues.length}`,
+        updateValues,
+      );
     await synchronizeRelations(collection, updated, existing);
     if (collection === "library-loans" && bookId) {
       const copyId = values.copy_id;
-      const copyUpdate = await (usePostgres
-        ? queryPostgres(
-            "UPDATE library_copies SET book_id = $1, status = $2, updated_at = $3 WHERE id = $4",
-            [bookId, updated.returnedDate ? "available" : "loaned", new Date().toISOString(), copyId],
-          )
-        : querySqlite(
-            "run",
-            "UPDATE library_copies SET book_id = ?, status = ?, updated_at = ? WHERE id = ?",
-            [bookId, updated.returnedDate ? "available" : "loaned", new Date().toISOString(), copyId],
-          ));
-      if ((usePostgres ? copyUpdate.rowCount : copyUpdate.changes) !== 1) {
+      const copyUpdate = await queryPostgres(
+        "UPDATE library_copies SET book_id = $1, status = $2, updated_at = $3 WHERE id = $4",
+        [bookId, updated.returnedDate ? "available" : "loaned", new Date().toISOString(), copyId],
+      );
+      if (copyUpdate.rowCount !== 1) {
         throw new Error("Library loan copy record is missing.");
       }
     }
@@ -1249,17 +1093,11 @@ async function remove(collection, id) {
       if (!existing) return false;
       if (!existing.returnedDate) {
         await changeAvailableCopies(existing.itemId, existing.schoolId, 1);
-        const copyStatus = usePostgres
-          ? await queryPostgres(
-              "UPDATE library_copies SET status = 'available', updated_at = $1 WHERE id = $2",
-              [new Date().toISOString(), `legacy-copy:${id}`],
-            )
-          : await querySqlite(
-              "run",
-              "UPDATE library_copies SET status = 'available', updated_at = ? WHERE id = ?",
-              [new Date().toISOString(), `legacy-copy:${id}`],
-            );
-        if ((usePostgres ? copyStatus.rowCount : copyStatus.changes) !== 1) {
+        const copyStatus = await queryPostgres(
+          "UPDATE library_copies SET status = 'available', updated_at = $1 WHERE id = $2",
+          [new Date().toISOString(), `legacy-copy:${id}`],
+        );
+        if (copyStatus.rowCount !== 1) {
           throw new Error("Library loan copy record is missing.");
         }
       }
@@ -1279,19 +1117,11 @@ async function remove(collection, id) {
       : null;
   if (softColumn) return softRemove(mapping, id, softColumn, collection);
   if (collection === "payments") throw new Error("Payment records are immutable.");
-  if (usePostgres) {
-    const { rowCount } = await queryPostgres(
-      `DELETE FROM ${mapping.table} WHERE id = $1`,
-      [id],
-    );
-    return rowCount > 0;
-  }
-  const result = await querySqlite(
-    "run",
-    `DELETE FROM ${mapping.table} WHERE id = ?`,
+  const { rowCount } = await queryPostgres(
+    `DELETE FROM ${mapping.table} WHERE id = $1`,
     [id],
   );
-  return result.changes > 0;
+  return rowCount > 0;
 }
 
 async function softRemove(mapping, id, column, collection) {
@@ -1299,34 +1129,22 @@ async function softRemove(mapping, id, column, collection) {
   const statusSet =
     collection === "users" ? ", status = 'disabled'" :
     ["students", "teachers"].includes(collection) ? ", status = 'inactive'" : "";
-  if (usePostgres) {
-    const result = await queryPostgres(
-      `UPDATE ${mapping.table} SET ${column} = $1${statusSet} WHERE id = $2 AND ${column} IS NULL`,
-      [now, id],
-    );
-    return result.rowCount > 0;
-  }
-  const result = await querySqlite(
-    "run",
-    `UPDATE ${mapping.table} SET ${column} = ?${statusSet} WHERE id = ? AND ${column} IS NULL`,
+  const result = await queryPostgres(
+    `UPDATE ${mapping.table} SET ${column} = $1${statusSet} WHERE id = $2 AND ${column} IS NULL`,
     [now, id],
   );
-  return result.changes > 0;
+  return result.rowCount > 0;
 }
 
 async function completePasswordReset(tokenHash, passwordHash) {
   const now = new Date().toISOString();
   return transaction(async () => {
-    const resetRows = usePostgres
-      ? (await queryPostgres(
-          "SELECT * FROM password_resets WHERE token_hash = $1 AND used_at IS NULL AND expires_at > $2 FOR UPDATE",
-          [tokenHash, now],
-        )).rows
-      : await querySqlite(
-          "all",
-          "SELECT * FROM password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?",
-          [tokenHash, now],
-        );
+    const resetRows = (
+      await queryPostgres(
+        "SELECT * FROM password_resets WHERE token_hash = $1 AND used_at IS NULL AND expires_at > $2 FOR UPDATE",
+        [tokenHash, now],
+      )
+    ).rows;
     const reset = recordFromRow("password-resets", resetRows[0]);
     if (!reset) return null;
     const user = await findById("users", reset.userId);
@@ -1344,14 +1162,7 @@ async function completePasswordReset(tokenHash, passwordHash) {
 }
 
 async function close() {
-  if (usePostgres) {
-    await pool.end();
-    return;
-  }
-  const previousLock = activeSqliteLock;
-  if (previousLock) await previousLock.done;
-  await sqliteLock;
-  if (sqlite.open) sqlite.close();
+  await pool.end();
 }
 
 module.exports = {
@@ -1363,8 +1174,8 @@ module.exports = {
   claimInvite,
   insertPlatformAuditEvent,
   listPlatformAuditLogs,
-  findChatByInviteCode,
   readByChatId,
+  readChatPageByChatId,
   markPasswordResetsUsed,
   createInvoiceWithItems,
   recordPaymentWithAllocations,
@@ -1378,7 +1189,7 @@ module.exports = {
   migrate,
   execute,
   all,
-  dialect: usePostgres ? "postgres" : "sqlite",
+  dialect: "postgres",
   transaction,
   withBootstrapLock,
   completePasswordReset,
