@@ -46,9 +46,11 @@ function assertTargetIdentity(row, environment) {
   }
   if (!isApprovedServerAddress(row.server_address, environment)) {
     const address =
-      typeof row.server_address === "string" && net.isIP(row.server_address)
-        ? row.server_address
-        : "invalid";
+      row.server_address === null
+        ? "null"
+        : typeof row.server_address === "string" && net.isIP(row.server_address)
+          ? row.server_address
+          : `invalid (${typeof row.server_address})`;
     mismatches.push(`server address (${address})`);
   }
   if (mismatches.length) {

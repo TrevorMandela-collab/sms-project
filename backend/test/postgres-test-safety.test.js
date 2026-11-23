@@ -225,6 +225,19 @@ test("PostgreSQL schema identity errors identify only the mismatched address", (
       ),
     /server address \(172\.18\.0\.2\)/,
   );
+  assert.throws(
+    () =>
+      assertTargetIdentity(
+        {
+          database_name: "sms_test",
+          user_name: "sms_test",
+          server_address: null,
+          server_port: 5432,
+        },
+        validEnvironment,
+      ),
+    /server address \(null\)/,
+  );
 });
 
 test("PostgreSQL schema harness rejects database, user, port and service-address mismatches", () => {
