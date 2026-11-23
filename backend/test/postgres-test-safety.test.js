@@ -157,11 +157,24 @@ test("PostgreSQL schema harness accepts an explicitly discovered CI service addr
       {
         database_name: "sms_test",
         user_name: "sms_test",
-        server_address: serviceAddress,
+        server_address: `${serviceAddress}/32`,
         server_port: 5432,
       },
       serviceEnvironment,
     ),
+  );
+  assert.throws(
+    () =>
+      assertTargetIdentity(
+        {
+          database_name: "sms_test",
+          user_name: "sms_test",
+          server_address: `${serviceAddress}/31`,
+          server_port: 5432,
+        },
+        serviceEnvironment,
+      ),
+    /server address/,
   );
 });
 
@@ -224,7 +237,7 @@ test("PostgreSQL schema identity errors identify only the mismatched address", (
         },
         validEnvironment,
       ),
-    /server address \(invalid \("172\.18\.0\.2\/32"\)\)/,
+    /server address \(172\.18\.0\.2\)/,
   );
   assert.throws(
     () =>

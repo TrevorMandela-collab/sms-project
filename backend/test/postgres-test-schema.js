@@ -10,10 +10,31 @@ const {
 
 const LOOPBACK_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 
-function isApprovedServerAddress(address, environment) {
-  if (typeof address !== "string") return false;
+function normalizeServerAddress(address) {
+  if (typeof address !== "string") return null;
   const normalizedAddress = address.toLowerCase();
-  if (net.isIP(normalizedAddress) === 0) return false;
+  const separator = normalizedAddress.lastIndexOf("/");
+  if (separator === -1) {
+    return net.isIP(normalizedAddress) === 0 ? null : normalizedAddress;
+  }
+
+  const host = normalizedAddress.slice(0, separator);
+  const family = net.isIP(host);
+  const prefix = normalizedAddress.slice(separator + 1);
+  const fullPrefix = family === 4 ? 32 : family === 6 ? 128 : null;
+  if (
+    fullPrefix === null ||
+    !/^\d+$/.test(prefix) ||
+    Number(prefix) !== fullPrefix
+  ) {
+    return null;
+  }
+  return host;
+}
+
+function isApprovedServerAddress(address, environment) {
+  const normalizedAddress = normalizeServerAddress(address);
+  if (normalizedAddress === null) return false;
 
   const expectedAddresses = parseExpectedServerAddresses(
     environment.POSTGRES_TEST_EXPECTED_SERVER_ADDRESSES,
@@ -48,11 +69,10 @@ function assertTargetIdentity(row, environment) {
     const address =
       row.server_address === null
         ? "null"
-        : typeof row.server_address === "string" && net.isIP(row.server_address)
-          ? row.server_address
-          : typeof row.server_address === "string"
+        : normalizeServerAddress(row.server_address) ||
+          (typeof row.server_address === "string"
             ? `invalid (${JSON.stringify(row.server_address.slice(0, 80))})`
-            : `invalid (${typeof row.server_address})`;
+            : `invalid (${typeof row.server_address})`);
     mismatches.push(`server address (${address})`);
   }
   if (mismatches.length) {
