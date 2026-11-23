@@ -1,26 +1,14 @@
 const assert = require("assert");
-const fs = require("fs");
-const os = require("os");
-const path = require("path");
 const { mapRecord, mappings } = require("../migrations/002_import_legacy_store");
 const { toCents } = require("../utils/money");
+const {
+  EXPECTED_MIGRATION_VERSIONS,
+  assertMigrationFiles,
+} = require("./migration-versions");
+const { withPostgresTestSchema } = require("./postgres-test-schema");
 
-if (process.env.TEST_DATABASE_URL) {
-  const databaseName = new URL(process.env.TEST_DATABASE_URL).pathname
-    .split("/")
-    .filter(Boolean)
-    .pop();
-  if (!/(^|[_-])test([_-]|$)/i.test(databaseName || "")) {
-    throw new Error("TEST_DATABASE_URL must point to a dedicated database with 'test' in its name.");
-  }
-  process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
-} else {
-  process.env.DATABASE_URL = "";
-}
-const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "sms-database-test-"));
-process.env.SQLITE_PATH = path.join(tempDirectory, "test.sqlite");
-
-const db = require("../utils/db");
+assertMigrationFiles();
+let db;
 const eventRecord = (id) => ({
   id,
   schoolId: "school-1",
@@ -37,7 +25,16 @@ function deferred() {
   return { promise, resolve };
 }
 
-async function run() {
+function parameter(index) {
+  return `$${index}`;
+}
+
+function parameters(count) {
+  return Array.from({ length: count }, (_, index) => parameter(index + 1)).join(", ");
+}
+
+async function run({ db: testDatabase }) {
+  db = testDatabase;
   assert.equal(toCents(0.1), 10);
   assert.equal(toCents(0.3), 30);
   assert.equal(toCents(1.005), null);
@@ -90,34 +87,30 @@ async function run() {
   const existingMigrations = await db.all(
     "SELECT COUNT(*) AS count FROM schema_migrations",
   );
-  const existingLegacyTable =
-    db.dialect === "postgres"
-      ? await db.all("SELECT to_regclass('store') AS name")
-      : await db.all(
-          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'store'",
-        );
-  const hasExistingLegacyTable =
-    db.dialect === "postgres"
-      ? Boolean(existingLegacyTable[0]?.name)
-      : existingLegacyTable.length > 0;
+  const existingTables = await db.all(
+    "SELECT tablename FROM pg_tables WHERE schemaname = current_schema() AND tablename <> 'schema_migrations'",
+  );
   if (
     Number(existingMigrations[0].count) !== 0 ||
-    hasExistingLegacyTable
+    existingTables.length !== 0
   ) {
     throw new Error(
-      "Database integration tests require a fresh, dedicated test database.",
+      "Database integration tests require a fresh, isolated test schema.",
     );
   }
   await db.execute(
-    db.dialect === "postgres"
-      ? "CREATE TABLE store (collection TEXT NOT NULL, id TEXT NOT NULL, data JSONB NOT NULL, PRIMARY KEY (collection, id))"
-      : "CREATE TABLE store (collection TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY (collection, id))",
+    "CREATE TABLE store (collection TEXT NOT NULL, id TEXT NOT NULL, data JSONB NOT NULL, PRIMARY KEY (collection, id))",
   );
   const now = new Date().toISOString();
   const legacy = [
-    ["schools", { id: "school-1", name: "Migration School", createdBy: null, createdAt: now }],
+    ["schools", { id: "school-1", name: "Migration School", settings: { email: "School@Example.test", phone: "+1 555 123 4567" }, createdBy: null, createdAt: now }],
+    ["schools", { id: "school-migration-2", name: "Second Migration School", settings: { email: "school@example.test", phone: "not-a-phone" }, createdAt: now }],
     ["users", { id: "admin-1", schoolId: "school-1", name: "Test Admin", email: "admin@example.test", passwordHash: "bcrypt-hash-only", role: "admin", status: "active", tokenVersion: 0, createdAt: now }],
+    ["users", { id: "student-user-1", schoolId: "school-1", name: "Profile Student", email: "student@example.test", passwordHash: "bcrypt-hash-only", role: "student", status: "active", studentId: "student-1", createdAt: now }],
+    ["users", { id: "teacher-user-1", schoolId: "school-1", name: "Profile Teacher", email: "teacher@example.test", passwordHash: "bcrypt-hash-only", role: "teacher", status: "active", teacherId: "teacher-1", createdAt: now }],
+    ["users", { id: "cross-school-profile-user", schoolId: "school-1", name: "Cross-school Profile", email: "cross-school@example.test", passwordHash: "bcrypt-hash-only", role: "student", status: "active", studentId: "student-2", createdAt: now }],
     ["teachers", { id: "teacher-1", schoolId: "school-1", name: "Test Teacher", employeeNumber: "EMP-1", status: "active", createdAt: now }],
+    ["students", { id: "student-2", schoolId: "school-migration-2", name: "Other School Student", status: "active", createdAt: now }],
     ["classes", { id: "class-1", schoolId: "school-1", name: "Grade 1", teacherIds: ["teacher-1"], subjectIds: ["subject-1"], createdAt: now }],
     ["subjects", { id: "subject-1", schoolId: "school-1", name: "Reading", code: "READ-1", createdAt: now }],
     ["students", { id: "student-1", schoolId: "school-1", name: "Test Student", classId: "class-1", class: "Grade 1", admissionNumber: "ADM-1", status: "active", createdAt: now }],
@@ -141,12 +134,12 @@ async function run() {
   for (const [collection, record] of legacy) {
     expectedCounts[collection] = (expectedCounts[collection] || 0) + 1;
     await db.execute(
-      "INSERT INTO store (collection, id, data) VALUES (?, ?, ?)",
+      `INSERT INTO store (collection, id, data) VALUES (${parameters(3)})`,
       [collection, record.id, JSON.stringify(record)],
     );
   }
   const versions = await db.migrate();
-  assert.deepEqual(versions, ["001", "002", "003", "004", "005", "006", "007", "008"]);
+  assert.deepEqual(versions, EXPECTED_MIGRATION_VERSIONS);
   for (const [collection, count] of Object.entries(expectedCounts)) {
     const table = mappings[collection].table;
     const result = await db.all(`SELECT COUNT(*) AS count FROM ${table}`);
@@ -157,23 +150,99 @@ async function run() {
     );
   }
 
-  const legacyTableAfterMigration =
-    db.dialect === "postgres"
-      ? await db.all("SELECT to_regclass('store') AS name")
-      : await db.all(
-          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'store'",
-        );
   assert.equal(
-    db.dialect === "postgres"
-      ? Boolean(legacyTableAfterMigration[0]?.name)
-      : legacyTableAfterMigration.length > 0,
-    false,
+    (await db.all("SELECT to_regclass('store') AS name"))[0]?.name ?? null,
+    null,
   );
+  const reconciledContacts = await db.all(
+    "SELECT school_id, contact_type, normalized_value FROM school_contact_identifiers ORDER BY school_id, contact_type",
+  );
+  assert.deepEqual(
+    reconciledContacts.map(({ school_id, contact_type, normalized_value }) => [
+      school_id,
+      contact_type,
+      normalized_value,
+    ]),
+    [
+      ["school-1", "email", "school@example.test"],
+      ["school-1", "phone", "15551234567"],
+    ],
+  );
+  const reconciledProfiles = await db.all(
+    "SELECT user_id, role_code, student_id, teacher_id FROM user_school_profiles ORDER BY user_id",
+  );
+  assert.deepEqual(
+    reconciledProfiles.map(({ user_id, role_code, student_id, teacher_id }) => [
+      user_id,
+      role_code,
+      student_id,
+      teacher_id,
+    ]),
+    [
+      ["student-user-1", "student", "student-1", null],
+      ["teacher-user-1", "teacher", null, "teacher-1"],
+    ],
+  );
+  const migrationReviewReasons = await db.all(
+    "SELECT reason, COUNT(*) AS count FROM school_architecture_reviews GROUP BY reason ORDER BY reason",
+  );
+  assert.deepEqual(
+    migrationReviewReasons.map(({ reason, count }) => [reason, Number(count)]),
+    [
+      ["duplicate_legacy_contact_requires_review", 2],
+      ["legacy_phone_requires_review", 1],
+      ["legacy_profile_missing_or_cross_school", 1],
+    ],
+  );
+  const qaColumns = await db.all(
+    "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema() AND ((table_name = 'qa_test_runs' AND column_name = 'duration_ms') OR (table_name = 'qa_test_run_results' AND column_name IN ('failure_reason', 'evidence')))",
+  );
+  assert.deepEqual(
+    qaColumns.map(({ table_name, column_name }) => `${table_name}.${column_name}`).sort(),
+    [
+      "qa_test_run_results.evidence",
+      "qa_test_run_results.failure_reason",
+      "qa_test_runs.duration_ms",
+    ],
+  );
+  await db.execute(
+    `INSERT INTO qa_test_runs (id, owner_user_id, environment, name, created_at, duration_ms)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    ["qa-run-diagnostic", "admin-1", "development", "Synthetic diagnostics", now, 1234],
+  );
+  await db.execute(
+    `INSERT INTO qa_test_run_results
+       (run_id, test_id, status, actual_result, notes, failure_reason, evidence)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      "qa-run-diagnostic",
+      "synthetic-test",
+      "fail",
+      "Synthetic failure",
+      "",
+      "synthetic_failure_reason",
+      "synthetic_evidence",
+    ],
+  );
+  const qaDiagnostic = await db.all(
+    `SELECT qa_run.duration_ms, result.failure_reason, result.evidence
+     FROM qa_test_runs qa_run
+     JOIN qa_test_run_results result ON result.run_id = qa_run.id
+     WHERE qa_run.id = $1 AND result.test_id = $2`,
+    ["qa-run-diagnostic", "synthetic-test"],
+  );
+  assert.deepEqual(qaDiagnostic, [
+    {
+      duration_ms: 1234,
+      failure_reason: "synthetic_failure_reason",
+      evidence: "synthetic_evidence",
+    },
+  ]);
   const importedCounts = await db.all(
     "SELECT 'students' AS entity, COUNT(*) AS count FROM students UNION ALL SELECT 'attendance', COUNT(*) FROM attendance UNION ALL SELECT 'invoices', COUNT(*) FROM invoices UNION ALL SELECT 'assessment_results', COUNT(*) FROM assessment_results",
   );
-  assert.deepEqual(importedCounts.map(({ count }) => Number(count)), [1, 1, 1, 1]);
-  assert.equal((await db.readAll("students"))[0].admissionNumber, "ADM-1");
+  assert.deepEqual(importedCounts.map(({ count }) => Number(count)), [2, 1, 1, 1]);
+  assert.equal((await db.findById("students", "student-1")).admissionNumber, "ADM-1");
   assert.deepEqual(
     (await db.findById("events", "event-1")).customContext,
     { source: "legacy-event" },
@@ -186,7 +255,7 @@ async function run() {
   assert.equal(typeof (await db.readAll("exams"))[0].score, "number");
   assert.equal((await db.readAll("attendance"))[0].sessionKey, "daily");
   assert.equal((await db.readAll("library-loans"))[0].itemId, "book-1");
-  assert.equal(await db.count("students"), 1);
+  assert.equal(await db.count("students"), 2);
 
   const countTestStudentId = "student-count-check";
   await db.insert("students", {
@@ -203,9 +272,9 @@ async function run() {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
-  assert.equal(await db.count("students"), 2);
+  assert.equal(await db.count("students"), 3);
   await db.remove("students", countTestStudentId);
-  assert.equal(await db.count("students"), 1);
+  assert.equal(await db.count("students"), 2);
 
   assert.equal(
     (await db.findByIds("students", ["student-1"], "school-1")).length,
@@ -221,7 +290,7 @@ async function run() {
   );
   assert.equal(
     (await db.readBySchool("users", "school-1")).length,
-    1,
+    4,
   );
   const studentPage = await db.listPage("students", {
     schoolId: "school-1",
@@ -245,9 +314,26 @@ async function run() {
   assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM teacher_assignments"))[0].count), 1);
   assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM class_subjects"))[0].count), 1);
   assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM chat_members"))[0].count), 1);
-  assert.equal(Number((await db.all("SELECT COUNT(*) AS count FROM schema_migrations"))[0].count), 8);
-  assert.equal((await db.findChatByInviteCode("school-1", "chat-code")).id, "chat-1");
-  assert.equal((await db.readByChatId("chat-1")).length, 1);
+  assert.equal(
+    Number((await db.all("SELECT COUNT(*) AS count FROM schema_migrations"))[0].count),
+    EXPECTED_MIGRATION_VERSIONS.length,
+  );
+  assert.equal((await db.findById("chats", "chat-1")).inviteCode, null);
+  assert.equal(
+    Number((await db.all("SELECT COUNT(*) AS count FROM chat_invitation_codes"))[0].count),
+    0,
+    "migration must retire plaintext legacy chat invitation codes",
+  );
+  const chatMessages = await db.readByChatId("chat-1");
+  assert.equal(chatMessages.length, 1);
+  const chatPage = await db.readChatPageByChatId("chat-1", { limit: 2 });
+  assert.deepEqual(chatPage.map((message) => message.id), [chatMessages[0].id]);
+  const chatBeforePage = await db.readChatPageByChatId("chat-1", {
+    limit: 2,
+    beforeCreatedAt: chatMessages[0].createdAt,
+    beforeId: chatMessages[0].id,
+  });
+  assert.equal(chatBeforePage.length, 0);
   console.log("[database] migration, relational reads, and constraints passed");
   const financeStamp = new Date().toISOString();
   const invoice = {
@@ -268,7 +354,7 @@ async function run() {
     },
   ]);
   assert.equal(
-    Number((await db.all("SELECT COUNT(*) AS count FROM invoice_items WHERE invoice_id = ?", ["invoice-with-items"]))[0].count),
+    Number((await db.all("SELECT COUNT(*) AS count FROM invoice_items WHERE invoice_id = $1", ["invoice-with-items"]))[0].count),
     1,
   );
   await assert.rejects(
@@ -315,7 +401,7 @@ async function run() {
       Number(
         (
           await db.all(
-            "SELECT SUM(amount) AS total FROM payment_allocations WHERE payment_id = ?",
+            "SELECT SUM(amount) AS total FROM payment_allocations WHERE payment_id = $1",
             ["payment-decimal-allocation"],
           )
         )[0].total,
@@ -350,7 +436,7 @@ async function run() {
     [{ id: "payment-allocation-1", invoiceId: invoice.id, amount: 50 }],
   );
   assert.equal(
-    Number((await db.all("SELECT COUNT(*) AS count FROM payment_allocations WHERE payment_id = ?", ["payment-allocated"]))[0].count),
+    Number((await db.all("SELECT COUNT(*) AS count FROM payment_allocations WHERE payment_id = $1", ["payment-allocated"]))[0].count),
     1,
   );
   await assert.rejects(
@@ -368,7 +454,7 @@ async function run() {
     (error) => error.code === "INVOICE_BALANCE_EXCEEDED",
   );
   assert.equal(
-    Number((await db.all("SELECT COUNT(*) AS count FROM payments WHERE id = ?", ["payment-over-invoice"]))[0].count),
+    Number((await db.all("SELECT COUNT(*) AS count FROM payments WHERE id = $1", ["payment-over-invoice"]))[0].count),
     0,
   );
   const concurrentInvoiceAllocations = await Promise.allSettled(
@@ -402,7 +488,7 @@ async function run() {
     Number(
       (
         await db.all(
-          "SELECT COALESCE(SUM(amount), 0) AS total FROM payment_allocations WHERE invoice_id = ?",
+          "SELECT COALESCE(SUM(amount), 0) AS total FROM payment_allocations WHERE invoice_id = $1",
           [invoice.id],
         )
       )[0].total,
@@ -424,7 +510,7 @@ async function run() {
     /UNIQUE|unique/i,
   );
   assert.equal(
-    Number((await db.all("SELECT COUNT(*) AS count FROM payments WHERE id = ?", ["payment-rollback"]))[0].count),
+    Number((await db.all("SELECT COUNT(*) AS count FROM payments WHERE id = $1", ["payment-rollback"]))[0].count),
     0,
   );
   await db.insert("library", {
@@ -519,66 +605,66 @@ async function run() {
   });
   assert.equal((await db.findById("library", "book-loan-concurrent")).copiesAvailable, 2);
   await db.migrate();
-  assert.equal((await db.readAll("students")).length, 1);
+  assert.equal((await db.readAll("students")).length, 2);
   const stamp = now;
   const duplicateAdmission = () => db.execute(
-    "INSERT INTO students (id, school_id, name, admission_number, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    `INSERT INTO students (id, school_id, name, admission_number, status, created_at, updated_at) VALUES (${parameters(7)})`,
     ["student-duplicate", "school-1", "Duplicate", "ADM-1", "active", stamp, stamp],
   );
   await assert.rejects(duplicateAdmission(), /UNIQUE|unique/i);
   await assert.rejects(
     db.execute(
-      "INSERT INTO teachers (id, school_id, employee_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      `INSERT INTO teachers (id, school_id, employee_id, name, status, created_at, updated_at) VALUES (${parameters(7)})`,
       ["teacher-duplicate", "school-1", "EMP-1", "Duplicate Teacher", "active", stamp, stamp],
     ),
     /UNIQUE|unique/i,
   );
   await assert.rejects(
     db.execute(
-      "INSERT INTO subjects (id, school_id, code, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      `INSERT INTO subjects (id, school_id, code, name, created_at, updated_at) VALUES (${parameters(6)})`,
       ["subject-duplicate", "school-1", "READ-1", "Duplicate Subject", stamp, stamp],
     ),
     /UNIQUE|unique/i,
   );
   await assert.rejects(
     db.execute(
-      "INSERT INTO students (id, school_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      `INSERT INTO students (id, school_id, name, status, created_at, updated_at) VALUES (${parameters(6)})`,
       ["student-no-school", "missing-school", "Invalid", "active", stamp, stamp],
     ),
     /FOREIGN KEY|foreign key/i,
   );
   await assert.rejects(
     db.execute(
-      "INSERT INTO students (id, school_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      `INSERT INTO students (id, school_id, name, status, created_at, updated_at) VALUES (${parameters(6)})`,
       ["student-no-name", "school-1", null, "active", stamp, stamp],
     ),
     /not[- ]null/i,
   );
   await db.execute(
-    "INSERT INTO schools (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+    `INSERT INTO schools (id, name, created_at, updated_at) VALUES (${parameters(4)})`,
     ["school-2", "Other School", stamp, stamp],
   );
   await db.execute(
-    "INSERT INTO classes (id, school_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+    `INSERT INTO classes (id, school_id, name, created_at, updated_at) VALUES (${parameters(5)})`,
     ["class-foreign", "school-2", "Foreign Class", stamp, stamp],
   );
   await assert.rejects(
     db.execute(
-      "INSERT INTO students (id, school_id, class_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      `INSERT INTO students (id, school_id, class_id, name, status, created_at, updated_at) VALUES (${parameters(7)})`,
       ["student-cross-school-class", "school-1", "class-foreign", "Invalid Tenant Link", "active", stamp, stamp],
     ),
     /cross-school relationship/i,
   );
   await assert.rejects(
     db.execute(
-      "UPDATE students SET class_id = ? WHERE id = ?",
+      `UPDATE students SET class_id = ${parameter(1)} WHERE id = ${parameter(2)}`,
       ["class-foreign", "student-1"],
     ),
     /cross-school relationship/i,
   );
   await assert.rejects(
     db.execute(
-      "UPDATE classes SET school_id = ? WHERE id = ?",
+      `UPDATE classes SET school_id = ${parameter(1)} WHERE id = ${parameter(2)}`,
       ["school-2", "class-1"],
     ),
     /cross-school relationship/i,
@@ -589,7 +675,7 @@ async function run() {
   );
   await assert.rejects(
     db.execute(
-      "UPDATE users SET school_id = ? WHERE id = ?",
+      `UPDATE users SET school_id = ${parameter(1)} WHERE id = ${parameter(2)}`,
       ["school-2", "admin-1"],
     ),
     /cross-school relationship/i,
@@ -597,40 +683,40 @@ async function run() {
   assert.equal((await db.findById("users", "admin-1")).schoolId, "school-1");
   await assert.rejects(
     db.execute(
-      "INSERT INTO assessment_results (id, school_id, student_id, score, max_score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      `INSERT INTO assessment_results (id, school_id, student_id, score, max_score, created_at, updated_at) VALUES (${parameters(7)})`,
       ["invalid-score", "school-1", "student-1", 11, 10, stamp, stamp],
     ),
     /CHECK|check/i,
   );
   await db.execute(
-    "INSERT INTO assessments (id, school_id, name, max_score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+    `INSERT INTO assessments (id, school_id, name, max_score, created_at, updated_at) VALUES (${parameters(6)})`,
     ["assessment-1", "school-1", "Assessment 1", 10, stamp, stamp],
   );
   await db.execute(
-    "INSERT INTO assessment_results (id, school_id, assessment_id, student_id, score, max_score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    `INSERT INTO assessment_results (id, school_id, assessment_id, student_id, score, max_score, created_at, updated_at) VALUES (${parameters(8)})`,
     ["result-unique", "school-1", "assessment-1", "student-1", 8, 10, stamp, stamp],
   );
   await assert.rejects(
     db.execute(
-      "INSERT INTO assessment_results (id, school_id, assessment_id, student_id, score, max_score, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      `INSERT INTO assessment_results (id, school_id, assessment_id, student_id, score, max_score, created_at, updated_at) VALUES (${parameters(8)})`,
       ["result-duplicate", "school-1", "assessment-1", "student-1", 9, 10, stamp, stamp],
     ),
     /UNIQUE|unique/i,
   );
   await assert.rejects(
     db.execute(
-      "INSERT INTO attendance (id, school_id, student_id, attendance_date, session_key, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      `INSERT INTO attendance (id, school_id, student_id, attendance_date, session_key, status, created_at, updated_at) VALUES (${parameters(8)})`,
       ["attendance-duplicate", "school-1", "student-1", "2026-10-08", "daily", "present", stamp, stamp],
     ),
     /UNIQUE|unique/i,
   );
   await db.execute(
-    "INSERT INTO payments (id, school_id, student_id, reference, amount, paid_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    `INSERT INTO payments (id, school_id, student_id, reference, amount, paid_at, created_at, updated_at) VALUES (${parameters(8)})`,
     ["payment-1", "school-1", "student-1", "REF-1", 100, stamp, stamp, stamp],
   );
   await assert.rejects(
     db.execute(
-      "INSERT INTO payments (id, school_id, student_id, reference, amount, paid_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      `INSERT INTO payments (id, school_id, student_id, reference, amount, paid_at, created_at, updated_at) VALUES (${parameters(8)})`,
       ["payment-2", "school-1", "student-1", "REF-1", 100, stamp, stamp, stamp],
     ),
     /UNIQUE|unique/i,
@@ -638,7 +724,7 @@ async function run() {
   const concurrentPayments = await Promise.allSettled(
     ["payment-concurrent-1", "payment-concurrent-2"].map((id) =>
       db.execute(
-        "INSERT INTO payments (id, school_id, student_id, reference, amount, paid_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        `INSERT INTO payments (id, school_id, student_id, reference, amount, paid_at, created_at, updated_at) VALUES (${parameters(8)})`,
         [id, "school-1", "student-1", "REF-CONCURRENT", 100, stamp, stamp, stamp],
       ),
     ),
@@ -680,7 +766,7 @@ async function run() {
   assert.equal(updatedResult.grade, "A");
   await assert.rejects(
     db.execute(
-      "INSERT INTO library_loans (id, school_id, copy_id, student_id, borrowed_at, due_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      `INSERT INTO library_loans (id, school_id, copy_id, student_id, borrowed_at, due_at, created_at, updated_at) VALUES (${parameters(8)})`,
       ["loan-no-copy", "school-1", "missing-copy", "student-1", stamp, stamp, stamp, stamp],
     ),
     /FOREIGN KEY|foreign key/i,
@@ -694,7 +780,7 @@ async function run() {
       for (let offset = 0; offset < batchSize; offset += 1) {
         const index = start + offset;
         await db.execute(
-          "INSERT INTO students (id, school_id, admission_number, name, status, created_at, updated_at, extra_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          `INSERT INTO students (id, school_id, admission_number, name, status, created_at, updated_at, extra_data) VALUES (${parameters(8)})`,
           [`perf-student-${index}`, "school-1", `PERF-${index}`, `Performance Student ${String(index).padStart(5, "0")}`, "active", stamp, stamp, "{}"],
         );
       }
@@ -761,12 +847,7 @@ async function run() {
   console.log("Database transaction tests passed");
 }
 
-run()
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
-    await db.close();
-    fs.rmSync(tempDirectory, { recursive: true, force: true });
-  });
+withPostgresTestSchema(run).catch((error) => {
+  console.error(error.message);
+  process.exitCode = 1;
+});

@@ -1,8 +1,9 @@
+process.env.NODE_ENV = "test";
 process.env.SQLITE_PATH = ":memory:";
 process.env.DATABASE_URL = "";
 
 const assert = require("node:assert/strict");
-const db = require("../utils/db");
+const db = require("../utils/db-sqlite-test");
 
 async function addInvite(id, expiresAt) {
   await db.insert("invite-codes", {

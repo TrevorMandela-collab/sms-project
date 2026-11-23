@@ -2,10 +2,11 @@ const assert = require("assert");
 const Module = require("module");
 const path = require("path");
 
+process.env.NODE_ENV = "test";
 process.env.DATABASE_URL = "";
 process.env.SQLITE_PATH = ":memory:";
 
-const db = require("../utils/db");
+const db = require("../utils/db-sqlite-test");
 const roles = require("../utils/roles");
 const { recordAuditEvent } = require("../utils/auditLog");
 const routePath = path.resolve(__dirname, "..", "routes", "audit-logs.js");
@@ -43,6 +44,7 @@ async function testPlatformAuditStorage() {
 async function testPlatformAuditRouteAuthorization() {
   const originalLoad = Module._load;
   Module._load = function loadWithAuthStub(request, parent, isMain) {
+    if (parent?.filename === routePath && request === "../utils/db") return db;
     if (parent?.filename === routePath && request === "../middleware/auth") {
       return {
         requireAuth: (_req, _res, next) => next(),
