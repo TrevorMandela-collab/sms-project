@@ -211,6 +211,22 @@ test("PostgreSQL schema harness rejects private, public and malformed unpinned a
   }
 });
 
+test("PostgreSQL schema identity errors identify only the mismatched address", () => {
+  assert.throws(
+    () =>
+      assertTargetIdentity(
+        {
+          database_name: "sms_test",
+          user_name: "sms_test",
+          server_address: "172.18.0.2",
+          server_port: 5432,
+        },
+        validEnvironment,
+      ),
+    /server address \(172\.18\.0\.2\)/,
+  );
+});
+
 test("PostgreSQL schema harness rejects database, user, port and service-address mismatches", () => {
   const serviceEnvironment = {
     ...validEnvironment,

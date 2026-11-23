@@ -30,15 +30,31 @@ function safeFailure(operation, error) {
 }
 
 function assertTargetIdentity(row, environment) {
-  if (
-    !row ||
-    typeof row !== "object" ||
-    row.database_name !== environment.POSTGRES_TEST_EXPECTED_DATABASE ||
-    row.user_name !== environment.POSTGRES_TEST_EXPECTED_USER ||
-    Number(row.server_port) !== Number(environment.POSTGRES_TEST_EXPECTED_PORT) ||
-    !isApprovedServerAddress(row.server_address, environment)
-  ) {
+  if (!row || typeof row !== "object") {
     throw new Error("Connected PostgreSQL server identity did not match the test target.");
+  }
+
+  const mismatches = [];
+  if (row.database_name !== environment.POSTGRES_TEST_EXPECTED_DATABASE) {
+    mismatches.push("database");
+  }
+  if (row.user_name !== environment.POSTGRES_TEST_EXPECTED_USER) {
+    mismatches.push("user");
+  }
+  if (Number(row.server_port) !== Number(environment.POSTGRES_TEST_EXPECTED_PORT)) {
+    mismatches.push("port");
+  }
+  if (!isApprovedServerAddress(row.server_address, environment)) {
+    const address =
+      typeof row.server_address === "string" && net.isIP(row.server_address)
+        ? row.server_address
+        : "invalid";
+    mismatches.push(`server address (${address})`);
+  }
+  if (mismatches.length) {
+    throw new Error(
+      `Connected PostgreSQL server identity did not match the test target (${mismatches.join(", ")}).`,
+    );
   }
 }
 
